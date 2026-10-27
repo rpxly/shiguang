@@ -3,12 +3,12 @@ import 'package:shiguang/models/photo.dart';
 import 'package:shiguang/services/monthly_recap_service.dart';
 import 'package:shiguang/services/on_device_ai_service.dart';
 
-Photo _photo(int day, {required String id, bool hasFace = false}) {
+Photo _photo(int day, {required String id, bool hasFace = false, int hour = 12}) {
   return Photo(
     id: id,
     path: '/tmp/$id.jpg',
     thumbnailPath: '/tmp/t$id.jpg',
-    date: DateTime(2026, 8, day, 12),
+    date: DateTime(2026, 8, day, hour),
     fileSize: 1024,
     hasFace: hasFace,
   );
@@ -35,6 +35,7 @@ class _FakeBackend implements LlamaBackend {
   bool loaded = false;
   bool disposed = false;
   String? seenPrompt;
+  int? seenMaxTokens;
 
   _FakeBackend({
     this.tokens = const ['这个月', '有八张', '照片。'],
@@ -51,6 +52,7 @@ class _FakeBackend implements LlamaBackend {
   @override
   Stream<String> generate(String prompt, {int maxTokens = 256}) async* {
     seenPrompt = prompt;
+    seenMaxTokens = maxTokens;
     for (final token in tokens) {
       if (throwMidStream) throw StateError('stream broken');
       yield token;
@@ -101,7 +103,7 @@ void main() {
       expect(prompt.user, contains('海边 8 张'));
       expect(prompt.user, isNot(contains('心情')));
       expect(prompt.user, isNot(contains('步数')));
-      expect(prompt.user, endsWith('直接输出正文。'));
+      expect(prompt.user, endsWith('直接输出正文。/no_think'));
     });
 
     test('填了心情/天气/步数才注入', () {
@@ -114,6 +116,40 @@ void main() {
       expect(prompt.user, contains('平静'));
       expect(prompt.user, contains('晴'));
       expect(prompt.user, contains('123456'));
+    });
+
+    test('user 消息末尾带 /no_think 软开关（离线验证的硬约束）', () {
+      final prompt = builder.build(NarrationRequest(facts: _facts()));
+      expect(prompt.user, endsWith('直接输出正文。/no_think'));
+    });
+
+    test('精选与夜间拍摄行按事实注入', () {
+      const recap = MonthlyRecapService();
+      final photos = [
+        _photo(1, id: 'k1', hasFace: false),
+        _photo(2, id: 'k2', hour: 22),
+        _photo(3, id: 'k3', hour: 23),
+      ];
+      final facts = recap.collectFacts(photos, year: 2026, month: 8);
+      final prompt = builder.build(NarrationRequest(facts: facts));
+      expect(prompt.user, contains('夜间拍摄：2 张'));
+      expect(prompt.user, isNot(contains('精选')));
+      expect(prompt.user, isNot(contains('有人出镜')));
+    });
+
+    test('factRowCount：数据厚 ≥4，单张照片只有 2 行', () {
+      final rich = builder.factRowCount(NarrationRequest(facts: _facts()));
+      expect(rich, greaterThanOrEqualTo(4));
+
+      const recap = MonthlyRecapService();
+      final single = recap.collectFacts(
+        [_photo(26, id: 's1')],
+        year: 2026,
+        month: 8,
+      );
+      final thin = builder.factRowCount(NarrationRequest(facts: single));
+      expect(thin, 2);
+      expect(thin, lessThan(kMinFactRows));
     });
 
     test('system 里有禁止编造的约束', () {
@@ -206,6 +242,40 @@ void main() {
       final done = events.whereType<NarrationDone>().single;
       expect(done.fromFallback, isTrue);
       expect(done.note, contains('生成中断'));
+    });
+
+    test('事实行不足时直接走规则版，即使设备与模型都可用', () async {
+      const recap = MonthlyRecapService();
+      final single = recap.collectFacts(
+        [_photo(26, id: 's1')],
+        year: 2026,
+        month: 8,
+      );
+      final backend = _FakeBackend();
+      final service = OnDeviceAiService(
+        wired: true,
+        backend: backend,
+        inspectOverride: (_) async => _readyStatus(),
+      );
+
+      final events = await service.narrate(NarrationRequest(facts: single)).toList();
+      final done = events.whereType<NarrationDone>().single;
+      expect(done.fromFallback, isTrue);
+      expect(done.note, contains('事实不足'));
+      expect(backend.loaded, isFalse, reason: '门控命中时不应加载模型');
+    });
+
+    test('接线后生成上限为 150（验证结论：短输出无需更大窗口）', () async {
+      final backend = _FakeBackend();
+      final service = OnDeviceAiService(
+        wired: true,
+        backend: backend,
+        inspectOverride: (_) async => _readyStatus(),
+      );
+
+      await service.narrate(NarrationRequest(facts: _facts())).toList();
+      expect(backend.seenMaxTokens, kDefaultMaxTokens);
+      expect(backend.seenMaxTokens, 150);
     });
 
     test('超时也回落到规则版', () async {

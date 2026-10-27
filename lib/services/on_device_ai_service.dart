@@ -35,6 +35,17 @@ const int kMinTotalRamMb = 4096;
 /// 低于这么多可用内存就先不加载模型。
 const int kMinFreeRamMb = 1500;
 
+/// 事实行数低于该值时不交给模型，直接走规则版。
+///
+/// 离线验证（2026-10-27）实测规律：提示词事实行 ≥4 时模型严格守规矩；
+/// <4 时会用想象补画面（编造「阳光透过云层」「清晨的草地」，后者与
+/// 「21 点拍摄」自相矛盾）。规则版在零线索场景下的输出是诚实且可接受的，
+/// 两者正好互补。
+const int kMinFactRows = 4;
+
+/// 默认生成上限。
+const int kDefaultMaxTokens = 150;
+
 /// 设备画像：只用 dart:io 读，不引入任何插件。
 class DeviceProfile {
   final String os;
@@ -169,7 +180,12 @@ class RecapPromptBuilder {
       '你只能使用用户给出的事实，绝不补充事实里没有的地点、人物、天气或事件。'
       '你不写标题、不分点、不加引号、不写结尾祝福语。';
 
-  PromptBundle build(NarrationRequest request) {
+  /// 事实行数。低于 [kMinFactRows] 时调用方应直接走规则版。
+  ///
+  /// 离线验证的幻觉规律：事实越薄，模型越倾向用想象补画面。
+  int factRowCount(NarrationRequest request) => _factLines(request).length;
+
+  List<String> _factLines(NarrationRequest request) {
     final facts = request.facts;
     final lines = <String>[
       '月份：${facts.year} 年 ${facts.month} 月',
@@ -189,6 +205,12 @@ class RecapPromptBuilder {
     if (facts.faceCount > 0) {
       lines.add('有人出镜：${facts.faceCount} 张');
     }
+    if (facts.favoriteCount > 0) {
+      lines.add('精选：${facts.favoriteCount} 张');
+    }
+    if (facts.nightCount > 0) {
+      lines.add('夜间拍摄：${facts.nightCount} 张');
+    }
     if (facts.busiestDay != null && facts.busiestDayCount > 1) {
       lines.add('拍得最多的一天：${facts.busiestDay} 号，${facts.busiestDayCount} 张');
     }
@@ -201,6 +223,11 @@ class RecapPromptBuilder {
     if (request.steps > 0) {
       lines.add('当月步数：${request.steps}');
     }
+    return lines;
+  }
+
+  PromptBundle build(NarrationRequest request) {
+    final lines = _factLines(request);
 
     final user = StringBuffer()
       ..writeln('下面是这个月的真实情况：')
@@ -212,7 +239,9 @@ class RecapPromptBuilder {
       ..writeln('2. 第一句说数量和分布，第二句说画面内容，第三句收尾；')
       ..writeln('3. 语气克制具体，禁止「时光荏苒」「岁月如歌」这类套话；')
       ..writeln('4. 不要出现"照片"以外的名词猜测。')
-      ..write('直接输出正文。');
+      // Qwen3 的思考软开关：必须放在 user 消息末尾。2026-10-27 离线验证实测，
+      // 不关 thinking 时 220 个 token 全部耗在 <think> 内部，正文零输出。
+      ..write('直接输出正文。/no_think');
 
     return PromptBundle(system: _system, user: user.toString());
   }
@@ -299,7 +328,8 @@ class OnDeviceAiService {
   /// 单测与 POC 调试可以显式传 true 来验证「接线后」的完整链路。
   final bool wired;
 
-  /// 生成上限：60~90 字 ≈ 120 token，留一倍余量。
+  /// 生成上限。离线验证（2026-10-27）实测 60~90 字 ≈ 60~90 token，
+  /// 150 已留一倍余量——上限越大，未关思考时浪费越多。
   final int maxTokens;
 
   /// 生成总超时。中低端机 1.7B 实测 3~8 tok/s，超时按 90 秒兜底。
@@ -317,7 +347,7 @@ class OnDeviceAiService {
     this.promptBuilder = const RecapPromptBuilder(),
     this.recapService = const MonthlyRecapService(),
     this.wired = kOnDeviceLlmWired,
-    this.maxTokens = 220,
+    this.maxTokens = kDefaultMaxTokens,
     this.timeout = const Duration(seconds: 90),
     this.inspectOverride,
   });
@@ -368,6 +398,23 @@ class OnDeviceAiService {
       weather: request.weather,
       steps: request.steps,
     );
+
+    // 门控一：事实行不足时不交给模型（离线验证实测：模型会用想象补画面）。
+    // 这条门控优先级最高——即使模型可用、内存充足也走规则版。
+    final factRows = promptBuilder.factRowCount(request);
+    if (factRows < kMinFactRows) {
+      if (recap == null) {
+        yield const NarrationFailed('本月还没有可用于生成的照片');
+        return;
+      }
+      yield const NarrationStatus('照片内容线索太少，先用规则版');
+      yield NarrationDone(
+        recap.text,
+        fromFallback: true,
+        note: '事实不足（$factRows 行 < $kMinFactRows 行），未调用模型',
+      );
+      return;
+    }
 
     final status = await inspect();
     if (!status.canRun) {
