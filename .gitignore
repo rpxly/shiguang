@@ -59,3 +59,6 @@ app.*.map.json
 
 # 真机验证截图（一次性产物，随验证重生成）
 .workbuddy/verify_*.png
+
+# 端侧 AI POC 工作区（模型与二进制，不入库）
+/.poc/

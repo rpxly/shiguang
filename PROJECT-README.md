@@ -63,14 +63,15 @@ lib/
 │   ├── home_page.dart                 # [Tab] 首页 — Hero + 统计卡片 + 最近回忆 + 时间线
 │   ├── smart_filter_page.dart         # [Tab] 智能筛选 — 分类胶囊 + 照片网格 + 相簿管理
 │   ├── monthly_magazine_page.dart     # [Tab] 月刊 — 6 模板 + 胶片模拟 + 导入编辑导出
-│   ├── quote_library_page.dart        # [Tab] 文案库 — 分类浏览 + AI 裂变 + 联网抓取
+│   ├── quote_library_page.dart        # [Tab] 文案库 — 分类浏览 + 联网抓取
 │   ├── film_index_page.dart           # [Tab] 胶片索引 — WebView 加载本地 HTML5 胶片模拟应用
 │   ├── photo_detail_page.dart         # [Push] 照片详情 — 大图 + 元数据 + 相似照片
 │   ├── slide_box_page.dart            # [Push] 卡片整理 — 左滑删除/右滑收藏/上滑保留/拖入相簿
 │   ├── curated_photos_page.dart       # [Push] 精选照片 — 收藏照片展示
 │   ├── cleanup_suggestion_page.dart   # [Push] 清理建议 — 截图分类批量清理
-│   ├── settings_page.dart             # [Push] 设置 — 主题 + AI 配置 + 应用设置
-│   └── ai_config_dialog.dart          # [Dialog] AI 配置弹窗 — API Key / Base URL / 模型
+│   ├── settings_page.dart             # [Push] 设置 — 主题 + 应用设置 + 端侧 AI 诊断入口
+│   ├── on_device_ai_page.dart         # [Push] 端侧 AI 诊断 — 设备闸门/模型状态/试跑/提示词预览
+│   └── watermark_page.dart            # [Push] 水印 — 边框/文字/浮层/相机模式 + EXIF
 │
 ├── models/                            # 数据模型（4 个）
 │   ├── photo.dart                     # Photo — 照片（15 字段，含 ML Kit 标签/质量评分/收藏）
@@ -78,12 +79,15 @@ lib/
 │   ├── quote.dart                     # Quote — 文案（text/author/source/category）
 │   └── album.dart                     # Album — 相簿（id/name/order/coverPath/localAlbumId）
 │
-├── services/                          # 服务层（6 个）
+├── services/                          # 服务层（12 个）
 │   ├── database_service.dart          # DatabaseService — Hive 初始化 + Schema 迁移 + 扫描入口
 │   ├── photo_scanner_service.dart     # PhotoScannerService — 分页扫描（200/页）+ 文件系统兜底
-│   ├── ai_service.dart                # AiService — OpenAI 兼容协议，全局仅 3 个入口
+│   ├── scene_classifier_service.dart  # SceneClassifier — ML Kit 离线场景识别（标签→中文场景词）
+│   ├── monthly_recap_service.dart     # MonthlyRecapService — 规则版月度摘要（只陈述照片事实）
+│   ├── on_device_ai_service.dart      # OnDeviceAiService — 端侧 LLM POC 骨架（提示词/闸门/兜底）
 │   ├── quote_service.dart             # QuoteService — 170 条内置文案 + 自定义文案管理
-│   ├── quote_fetcher_service.dart     # QuoteFetcherService — hitokoto 联网抓取 + AI 生成
+│   ├── quote_fetcher_service.dart     # QuoteFetcherService — hitokoto 联网抓取
+│   ├── steps_service.dart             # StepsService — Health Connect 月度步数
 │   └── image_helper.dart              # LocalImage — 统一图片组件（cacheWidth 自动推导 + LayoutBuilder 兜底）
 │
 └── repository/
@@ -120,12 +124,13 @@ lib/
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**AI 能力（收敛为 3 个全局入口）**:
-1. **月刊文案优化** — `AiService.optimizeCaption()` — 润色为杂志风短句
-2. **文案库裂变** — `AiService.fissionQuote()` — 基于已有文案生成新文案
-3. **联网抓取文案** — `AiService.generateQuotes()` — AI 围绕随机主题生成文案
+**AI 能力（2026-10-27 起为「规则摘要 + 端侧 LLM POC」双轨）**:
+1. **规则版月度摘要** — `MonthlyRecapService` — 从照片事实（场景词/地名/人脸/精选/夜间）生成 3 句总结，已接入月刊页「智能摘要」
+2. **端侧 LLM（未接线）** — `OnDeviceAiService` — Qwen3-1.7B 端侧叙事的 POC 骨架，`kOnDeviceLlmWired=false` 时全部请求自动走规则版
+3. **联网抓取文案** — `QuoteFetcherService` — hitokoto 热句抓取（无 AI 生成）
 
-> AI 服务使用 OpenAI 兼容协议，支持任意兼容端点（DashScope compatible-mode / DeepSeek / OpenAI 等）。配置入口：设置页 → AI 配置按钮。
+> 旧的 `AiService`（OpenAI 兼容协议）已整体移除。端侧 AI 的选型与验证结论见
+> 《拾光-端侧AI选型与Flutter升级评估.md》《拾光-端侧AI提示词离线验证报告.md》。
 
 ---
 
@@ -149,7 +154,7 @@ lib/
 |------|------|------|
 | PhotoDetailPage | 点击照片 | 大图浏览（cacheWidth 限内存） + 元数据 + 相似照片 |
 | SlideBoxPage | 首页统计卡片 | 卡片式整理（左滑删除/右滑收藏/上滑保留/拖入相簿） |
-| SettingsPage | 首页设置按钮 | 主题切换 + AI 配置 + 应用设置 |
+| SettingsPage | 首页设置按钮 | 主题切换 + 应用设置 + 端侧 AI 诊断 |
 | CuratedPhotosPage | 首页精选 | 收藏照片展示 |
 | CleanupSuggestionPage | 首页清理建议 | 截图分类批量清理 |
 | AiConfigDialog | 设置页 AI 按钮 | API Key / Base URL / 模型配置 |
@@ -234,7 +239,7 @@ FilmIndexPage ───→ WebView 胶片模拟
 | diary_entries | DiaryEntry | 日记条目 |
 | monthly_diaries | MonthlyDiary | 月度日记（key: `${year}_${month}`） |
 | quotes | Quote | 自定义文案（内置文案不入库） |
-| general_settings | 混合 | 通用设置 + AI 配置 + 相簿列表 + 月刊页面数据 |
+| general_settings | 混合 | 通用设置 + 相簿列表 + 月刊页面数据 |
 
 **Schema 版本控制**: `general_settings` 中记录 `schema_version`，当前版本 2。版本升级时自动清理不兼容的 box（photos/diary_entries/monthly_diaries/quotes）并重建。
 
