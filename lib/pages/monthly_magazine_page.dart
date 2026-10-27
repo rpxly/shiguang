@@ -13,6 +13,7 @@ import '../components/glass_card.dart';
 import '../models/photo.dart';
 import '../models/quote.dart';
 import '../repository/local_repository.dart';
+import '../services/analytics_service.dart';
 import '../services/monthly_recap_service.dart';
 import '../services/quote_service.dart';
 import '../services/scene_classifier_service.dart';
@@ -106,6 +107,18 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
 
   List<String> get _keywords => _recapService.keywordsFor(_monthFacts);
 
+  /// 漏斗第 3 段：本页确实产出了内容（摘要/文案/手输/加页面）。
+  /// 同一次进入只记一条，`source` 记最先发生的那个来源，方便回查是哪条路走通了。
+  bool _generatedLogged = false;
+  void _logGenerated(String source) {
+    if (_generatedLogged) return;
+    _generatedLogged = true;
+    AnalyticsService.instance.log(
+      AnalyticsEvent.magazineGenerated,
+      props: {'source': source, 'photos': _monthPhotos.length},
+    );
+  }
+
   /// 一键生成月度摘要并写入「本月总结」。
   void _generateRecap() {
     if (_monthPhotos.isEmpty) return;
@@ -119,6 +132,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     HapticFeedback.lightImpact();
     setState(() => _summaryController.text = recap.text);
     _persistMeta();
+    _logGenerated('rule');
   }
 
   @override
@@ -126,6 +140,11 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     super.initState();
     _year = widget.initialYear;
     _month = widget.initialMonth;
+    // 漏斗第 2 段：进入月刊页
+    AnalyticsService.instance.log(
+      AnalyticsEvent.magazineOpened,
+      props: {'y': _year, 'm': _month},
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadAsync());
   }
 
@@ -344,6 +363,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     if (quote == null) return;
     _summaryController.text = formatQuoteAsCaption(quote);
     _persistMeta();
+    _logGenerated('quote');
   }
 
   void _changeTemplate(MagPage page) {
@@ -405,6 +425,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     );
     setState(() => _pages.add(page));
     _persist();
+    _logGenerated('page_add');
   }
 
   Future<void> _exportSinglePhoto(Photo photo) async {
@@ -419,7 +440,14 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       final tempDir = await getTemporaryDirectory();
       final file = File('${tempDir.path}${Platform.pathSeparator}photo_${photo.id}.png');
       await file.writeAsBytes(byteData.buffer.asUint8List());
-      await Share.shareXFiles([XFile(file.path)], text: '${_year}年${_month}月');
+      final result = await Share.shareXFiles([XFile(file.path)], text: '${_year}年${_month}月');
+      // 漏斗第 4 段：分享面板已唤起即记「导出」。
+      // status 只作诊断参考 —— Android 上 share_plus 常返回 unavailable，
+      // 不能用它判「对方是否收到」，所以不拿 status 卡事件。
+      AnalyticsService.instance.log(
+        AnalyticsEvent.magazineExported,
+        props: {'type': 'single', 'status': result.status.name},
+      );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }
@@ -469,6 +497,12 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
                       4.hGap,
                       Text('$_photoCount 张照片 · $_travelDays 天出行 · $_eventsCount 个重要事件',
                         style: TextStyle(fontSize: AppFontSizes.sm, color: AppColors.textSecondary(context))),
+                      2.hGap,
+                      // 口径说明（#11-①）：页面上的张数/天数/摘要都只统计「用户导入
+                      // 进来的照片」，不是「本月拍的全部照片」。用户看到数字对不上
+                      // 相册总数时会以为算错了，这里明写一句。
+                      Text('仅统计已导入本月的照片，非本月全部拍摄',
+                        style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textTertiary(context))),
                     ],
                   ),
                 ),
@@ -514,7 +548,11 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
                 4.hGap,
                 TextField(
                   controller: _summaryController,
-                  onChanged: (_) => _persistMeta(),
+                  onChanged: (value) {
+                    _persistMeta();
+                    // 手输也算「产出」，但空串（清空动作）不算
+                    if (value.trim().isNotEmpty) _logGenerated('manual');
+                  },
                   maxLines: 3,
                   style: TextStyle(fontSize: AppFontSizes.sm, color: AppColors.textSecondary(context), height: 1.6),
                   decoration: InputDecoration(
@@ -526,6 +564,9 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
                 ),
               ],
             ),
+            // 关键词行：没有真实关键词时**整行不显示**（2026-10-27 决策）。
+            // 旧版这里会兜底硬编码「生活/记忆/时光」，那是放之四海皆准的空话；
+            // 宁可留白，也不要让用户以为这些词是从他的照片里识别出来的。
             if (_keywords.isNotEmpty) ...[
               12.hGap,
               Wrap(spacing: 6, runSpacing: 6,

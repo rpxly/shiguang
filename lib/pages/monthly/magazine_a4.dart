@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../models/photo.dart';
+import '../../services/analytics_service.dart';
 import '../../services/image_helper.dart';
 import '../../theme.dart';
 import 'magazine_models.dart';
@@ -269,7 +270,11 @@ Future<void> captureA4({
     final tempDir = await getTemporaryDirectory();
     final file = File('${tempDir.path}${Platform.pathSeparator}a4_${year}_$month.png');
     await file.writeAsBytes(byteData.buffer.asUint8List());
-    await Share.shareXFiles([XFile(file.path)], text: '${year}年${month}月 画册');
+    final result = await Share.shareXFiles([XFile(file.path)], text: '${year}年${month}月 画册');
+    AnalyticsService.instance.log(
+      AnalyticsEvent.magazineExported,
+      props: {'type': 'a4', 'status': result.status.name, 'photos': photos.length},
+    );
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));

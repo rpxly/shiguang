@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../components/app_background.dart';
 import '../components/glass_card.dart';
 import '../components/nav_header.dart';
+import '../models/photo.dart';
 import '../repository/local_repository.dart';
 import '../services/monthly_recap_service.dart';
 import '../services/llama_cpp_backend.dart';
@@ -43,6 +44,10 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
   PromptBundle? _prompt;
   bool _inspecting = true;
   bool _running = false;
+
+  /// 本月口径下的事实与张数。build 里直接读它，避免每次重建都去解析
+  /// magazine_pages JSON + 遍历全部照片。
+  ({MonthlyFacts facts, int monthPhotoCount})? _scope;
 
   String _output = '';
   final List<String> _notes = [];
@@ -100,28 +105,51 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
     setState(() {
       _status = status;
       _inspecting = false;
+      _scope = _monthFacts();
     });
   }
 
-  /// 取本月照片并聚合成事实。
-  MonthlyFacts _monthFacts() {
+  /// 取**已导入月刊**的照片并聚合成事实。
+  ///
+  /// 2026-10-27 口径对齐（#11-①）：月刊页的统计与摘要都基于「用户实际导入月刊的
+  /// 那几张」，诊断页此前用「本月全部照片」，两处口径不同会让同一句话在月刊页
+  /// 复现不出来。这里改为与月刊页完全一致：`magazine_pages` → photoIds → Photo。
+  ///
+  /// 代价：导入得少时事实行 <4，会被门控挡回规则版（这正是应有的行为）。
+  /// 要测速就先去月刊页导几张，见评估文档 7.3。
+  ({MonthlyFacts facts, int monthPhotoCount}) _monthFacts() {
     final now = DateTime.now();
-    final photos = widget.repository
+    final magazine = widget.repository.getMagazinePages(now.year, now.month);
+    final ids = <String>{};
+    for (final page in magazine) {
+      // 直接读 JSON 的 photoIds，避免为了取一个字段去依赖 MagPage 的完整解析
+      final raw = page['photoIds'];
+      if (raw is List) ids.addAll(raw.whereType<String>());
+    }
+    final photos = <Photo>[];
+    for (final id in ids) {
+      final photo = widget.repository.getPhoto(id);
+      if (photo != null) photos.add(photo);
+    }
+    photos.sort((a, b) => a.date.compareTo(b.date));
+    final monthPhotoCount = widget.repository
         .getAllPhotos()
         .where((p) => p.dateTime.year == now.year && p.dateTime.month == now.month)
-        .toList()
-      ..sort((a, b) => a.date.compareTo(b.date));
-    return _recapService.collectFacts(
-      photos,
-      year: now.year,
-      month: now.month,
-      sceneOf: SceneClassifier.instance.labelFor,
-      placeOf: SceneClassifier.readablePlace,
+        .length;
+    return (
+      facts: _recapService.collectFacts(
+        photos,
+        year: now.year,
+        month: now.month,
+        sceneOf: SceneClassifier.instance.labelFor,
+        placeOf: SceneClassifier.readablePlace,
+      ),
+      monthPhotoCount: monthPhotoCount,
     );
   }
 
   NarrationRequest _request() {
-    final facts = _monthFacts();
+    final facts = _scope?.facts ?? _monthFacts().facts;
     final meta = widget.repository.getMagazineMeta(facts.year, facts.month);
     return NarrationRequest(
       facts: facts,
@@ -139,7 +167,7 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
     }
     final request = _request();
     if (request.facts.isEmpty) {
-      setState(() => _notes.add('本月没有照片，先扫描相册'));
+      setState(() => _notes.add('还没有照片导入月刊，先去月刊页导几张'));
       return;
     }
     setState(() {
@@ -352,11 +380,21 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
   }
 
   Widget _buildTrialCard(BuildContext context) {
+    final scope = _scope ?? _monthFacts();
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _cardTitle(context, '试跑'),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              scope.facts.isEmpty
+                  ? '口径：已导入月刊的照片（0 张）—— 先去月刊页导几张，否则事实行不足会被门控挡回规则版。'
+                  : '口径：已导入月刊的 ${scope.facts.photoCount} 张 / 本月共 ${scope.monthPhotoCount} 张，与月刊页一致。',
+              style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textTertiary(context), height: 1.5),
+            ),
+          ),
           Row(
             children: [
               Expanded(

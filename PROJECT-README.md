@@ -59,7 +59,7 @@ lib/
 │   ├── shimmer_skeleton.dart          # Shimmer 骨架屏（box/list/timeline）
 │   └── staggered_fade_in.dart         # 列表项 stagger 淡入上滑动画
 │
-├── pages/                             # 页面（11 个）
+├── pages/                             # 页面（12 个）
 │   ├── home_page.dart                 # [Tab] 首页 — Hero + 统计卡片 + 最近回忆 + 时间线
 │   ├── smart_filter_page.dart         # [Tab] 智能筛选 — 分类胶囊 + 照片网格 + 相簿管理
 │   ├── monthly_magazine_page.dart     # [Tab] 月刊 — 6 模板 + 胶片模拟 + 导入编辑导出
@@ -71,6 +71,7 @@ lib/
 │   ├── cleanup_suggestion_page.dart   # [Push] 清理建议 — 截图分类批量清理
 │   ├── settings_page.dart             # [Push] 设置 — 主题 + 应用设置 + 端侧 AI 诊断入口
 │   ├── on_device_ai_page.dart         # [Push] 端侧 AI 诊断 — 设备闸门/模型状态/试跑/提示词预览
+│   ├── analytics_page.dart            # [Push] 使用数据 — 本地埋点漏斗（整理→月刊→生成→导出）
 │   └── watermark_page.dart            # [Push] 水印 — 边框/文字/浮层/相机模式 + EXIF
 │
 ├── models/                            # 数据模型（4 个）
@@ -79,13 +80,14 @@ lib/
 │   ├── quote.dart                     # Quote — 文案（text/author/source/category）
 │   └── album.dart                     # Album — 相簿（id/name/order/coverPath/localAlbumId）
 │
-├── services/                          # 服务层（12 个）
+├── services/                          # 服务层（13 个）
 │   ├── database_service.dart          # DatabaseService — Hive 初始化 + Schema 迁移 + 扫描入口
 │   ├── photo_scanner_service.dart     # PhotoScannerService — 分页扫描（200/页）+ 文件系统兜底
 │   ├── scene_classifier_service.dart  # SceneClassifier — ML Kit 离线场景识别（标签→中文场景词）
 │   ├── monthly_recap_service.dart     # MonthlyRecapService — 规则版月度摘要（只陈述照片事实）
 │   ├── on_device_ai_service.dart      # OnDeviceAiService — 端侧 LLM（提示词/闸门/兜底，永不空手而归）
 │   ├── llama_cpp_backend.dart         # LlamaCppBackend — llama_cpp_dart 0.2.2 适配层（isolate 推理）
+│   ├── analytics_service.dart         # AnalyticsService — 本地埋点（4 段漏斗 JSONL，只落盘不联网）
 │   ├── quote_service.dart             # QuoteService — 170 条内置文案 + 自定义文案管理
 │   ├── quote_fetcher_service.dart     # QuoteFetcherService — hitokoto 联网抓取
 │   ├── steps_service.dart             # StepsService — Health Connect 月度步数

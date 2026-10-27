@@ -5,6 +5,7 @@ import '../components/glass_card.dart';
 import '../components/nav_header.dart';
 import '../repository/local_repository.dart';
 import '../services/album_archive_service.dart';
+import '../services/analytics_service.dart';
 import '../theme.dart';
 import '../components/app_background.dart';
 
@@ -73,6 +74,14 @@ class _ApplyMovesPageState extends State<ApplyMovesPage> {
         _outcome = outcome;
         _phase = _Phase.done;
       });
+      // 埋点：真正的「整理完成」= 有照片被移动落盘。
+      // alreadyThere/blocked/failed 都算没整理成，不算进漏斗分母。
+      if (outcome.moved > 0) {
+        AnalyticsService.instance.log(
+          AnalyticsEvent.organizeCompleted,
+          props: {'moves': outcome.moved, 'failed': outcome.failed},
+        );
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {

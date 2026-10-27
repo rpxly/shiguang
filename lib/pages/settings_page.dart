@@ -5,6 +5,7 @@ import '../components/glass_card.dart';
 import '../components/staggered_fade_in.dart';
 import '../repository/local_repository.dart';
 import '../components/app_background.dart';
+import 'analytics_page.dart';
 import 'on_device_ai_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -148,6 +149,13 @@ class _SettingsPageState extends State<SettingsPage> {
               _openOnDeviceAi,
             ),
             12.hGap,
+            _linkRow(
+              context,
+              '使用数据（本地）',
+              '整理→月刊→生成→导出 四段漏斗的真实计数',
+              _openAnalytics,
+            ),
+            12.hGap,
             _infoRow(context, '应用版本', '1.0.0'),
           ],
         ),
@@ -161,6 +169,17 @@ class _SettingsPageState extends State<SettingsPage> {
       MaterialPageRoute(
         builder: (routeContext) => OnDeviceAiPage(
           repository: widget.repository,
+          onBack: () => Navigator.of(routeContext).pop(),
+        ),
+      ),
+    );
+  }
+
+  /// 使用数据页：把本地埋点的漏斗摆出来，用于替换方向清单里的示例数据。
+  void _openAnalytics() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (routeContext) => AnalyticsPage(
           onBack: () => Navigator.of(routeContext).pop(),
         ),
       ),
