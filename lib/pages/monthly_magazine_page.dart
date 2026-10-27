@@ -441,13 +441,17 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       final file = File('${tempDir.path}${Platform.pathSeparator}photo_${photo.id}.png');
       await file.writeAsBytes(byteData.buffer.asUint8List());
       final result = await Share.shareXFiles([XFile(file.path)], text: '${_year}年${_month}月');
-      // 漏斗第 4 段：分享面板已唤起即记「导出」。
-      // status 只作诊断参考 —— Android 上 share_plus 常返回 unavailable，
-      // 不能用它判「对方是否收到」，所以不拿 status 卡事件。
-      AnalyticsService.instance.log(
-        AnalyticsEvent.magazineExported,
-        props: {'type': 'single', 'status': result.status.name},
-      );
+      // 漏斗第 4 段：分享面板返回后才记。
+      // 取消（dismissed）**不记** —— 打开面板又退出去不算导出，真机验证过
+      // 这一条：A4 导出后按返回键会拿到 status=dismissed，若不排除，
+      // 导出率会被"点开看看"的动作刷高。
+      // 反之 Android 常返回 unavailable，那说明面板已交接给目标 App，算导出。
+      if (result.status != ShareResultStatus.dismissed) {
+        AnalyticsService.instance.log(
+          AnalyticsEvent.magazineExported,
+          props: {'type': 'single', 'status': result.status.name},
+        );
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
     }

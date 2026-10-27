@@ -271,10 +271,13 @@ Future<void> captureA4({
     final file = File('${tempDir.path}${Platform.pathSeparator}a4_${year}_$month.png');
     await file.writeAsBytes(byteData.buffer.asUint8List());
     final result = await Share.shareXFiles([XFile(file.path)], text: '${year}年${month}月 画册');
-    AnalyticsService.instance.log(
-      AnalyticsEvent.magazineExported,
-      props: {'type': 'a4', 'status': result.status.name, 'photos': photos.length},
-    );
+    // 取消分享不记导出（同 monthly_magazine_page 里的说明）。
+    if (result.status != ShareResultStatus.dismissed) {
+      AnalyticsService.instance.log(
+        AnalyticsEvent.magazineExported,
+        props: {'type': 'a4', 'status': result.status.name, 'photos': photos.length},
+      );
+    }
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
