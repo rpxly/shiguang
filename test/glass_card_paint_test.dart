@@ -7,15 +7,16 @@ import 'package:shiguang/components/glass_card.dart';
 /// 历史问题（2026-10-27）：`foregroundDecoration` 同时给了 `borderRadius` 和
 /// 上下颜色不同的 `Border`，Flutter 会抛
 /// `A borderRadius can only be given on borders with uniform colors`。
-/// 因为 GlassCard 是全站卡片的基座，这一条断言会把整片界面打成异常。
+/// 因为 GlassCard 是全站卡片的基座，这一条断言会把整片界面打成异常
+/// （release 因 assert 被剥离，所以只在 debug 与测试中暴露）。
 void main() {
   testWidgets('GlassCard 能正常绘制，不抛 paint 断言', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
+      const MaterialApp(
         home: Scaffold(
           body: Center(
             child: GlassCard(
-              child: const Text('内容', style: TextStyle(fontSize: 14)),
+              child: Text('内容', style: TextStyle(fontSize: 14)),
             ),
           ),
         ),
@@ -28,12 +29,12 @@ void main() {
 
   testWidgets('渐变卡片同样可绘制', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
+      const MaterialApp(
         home: Scaffold(
           body: Center(
             child: GlassCard(
-              gradient: const LinearGradient(colors: [Colors.blue, Colors.purple]),
-              child: const Text('渐变', style: TextStyle(fontSize: 14)),
+              gradient: LinearGradient(colors: [Colors.blue, Colors.purple]),
+              child: Text('渐变', style: TextStyle(fontSize: 14)),
             ),
           ),
         ),
