@@ -66,3 +66,4 @@ app.*.map.json
 # 真机测速截图与采样输出（POC 过程产物）
 .workbuddy/*.png
 .workbuddy/t10_*.txt
+拾光-1.0.0-release-1027.apk

@@ -46,6 +46,7 @@ class MagazineExportSpec {
     this.favoriteCount = 0,
     this.sceneOf,
     this.placeOf,
+    this.ratioOf,
   });
 
   final int year;
@@ -58,6 +59,13 @@ class MagazineExportSpec {
   final int favoriteCount;
   final String? Function(String photoId)? sceneOf;
   final String? Function(String? location)? placeOf;
+
+  /// 照片原始宽高比（宽 / 高）。
+  ///
+  /// 单页是**不许裁图**的：以前的 `BoxFit.cover` 把 3:2 的横图塞进 402×530 的
+  /// 竖格子，左右各切掉 30%，人常常被切在边上。现在按真实比例排版，
+  /// 返回 null 表示"尺寸还没解析出来"，此时按 1:1 兜底（最多裁成方形，不会溢出）。
+  final double? Function(String path)? ratioOf;
 }
 
 /// 导出总页数：封面 1 + 内容页（每页 3 张）+ 版权页 1。
@@ -570,33 +578,150 @@ Widget buildSingleExportPage(BuildContext context, MagazineExportSpec spec, Glob
   );
 }
 
+/// 图版里的一行：同一行的图**等高**，宽度各自按原始比例算，
+/// 所以整行恰好铺满版心，且一刀不裁。
+class _PlateRow {
+  const _PlateRow(this.photos, this.height);
+  final List<Photo> photos;
+  final double height;
+}
+
+/// 排版结果的一行：照片下标 + 行高。纯数据，方便单测。
+class PlateRowPlan {
+  const PlateRowPlan(this.indices, this.height);
+  final List<int> indices;
+  final double height;
+}
+
+/// 图版排版：给定各图宽高比与可用区域，决定分成几行、每行多高。
+///
+/// 这是"不裁图"的代价 —— 既然不能靠裁切把任意照片塞进固定格子，就只能反过来
+/// 让格子跟着照片比例走，再由可用高度反推该排几行：
+/// - 6 张 3:4 竖图 → 2 行 × 3 张，每张约 216×288
+/// - 6 张 3:2 横图 → 3 行 × 2 张，每张约 331×221
+///
+/// 不变量（单测覆盖）：行内总宽恰好等于 [width]（整体缩放后成比例收窄）、
+/// 总高不超过 [height]、每行高度不低于 [minRowH]。
+List<PlateRowPlan> planPlateRows(
+  List<double> ratios,
+  double width,
+  double height, {
+  double hGap = 18,
+  double rowGap = 18,
+  double minRowH = 96,
+}) {
+  if (ratios.isEmpty || width <= 0 || height <= 0) return const [];
+
+  double rowHeight(List<int> group) {
+    var sum = 0.0;
+    for (final i in group) {
+      sum += ratios[i];
+    }
+    if (sum <= 0) return 0;
+    return (width - hGap * (group.length - 1)) / sum;
+  }
+
+  List<List<int>> splitEven(int rows) {
+    final base = ratios.length ~/ rows;
+    final rem = ratios.length % rows;
+    if (base == 0) return const [];
+    final out = <List<int>>[];
+    var cursor = 0;
+    for (var r = 0; r < rows; r++) {
+      final k = base + (r < rem ? 1 : 0);
+      out.add([for (var i = cursor; i < cursor + k; i++) i]);
+      cursor += k;
+    }
+    return out;
+  }
+
+  // 「填满版面」和「不超出版面」在竖图/横图上会打架：
+  // 6 张横图排 2 行只占一半高度，排 3 行会超出 5%。所以不追求严格不超，
+  // 而是允许小幅溢出（整体等比缩小补回来），用「版面的利用率」打分。
+  const double maxFill = 1.08; // 允许溢出 8%
+  const double minFill = 0.6; // 低于 60% 说明这一版太空，宁可少排一行
+
+  List<PlateRowPlan>? best;
+  var bestScore = 0.0;
+  var bestTotal = 0.0;
+
+  for (var rows = 1; rows <= ratios.length; rows++) {
+    final groups = splitEven(rows);
+    if (groups.length != rows) continue;
+    final plans = <PlateRowPlan>[];
+    var total = rowGap * (rows - 1);
+    var usable = true;
+    for (final group in groups) {
+      final rh = rowHeight(group);
+      if (rh < minRowH) {
+        usable = false;
+        break;
+      }
+      plans.add(PlateRowPlan(group, rh));
+      total += rh;
+    }
+    if (!usable) continue;
+
+    final fill = total / height;
+    if (fill > maxFill || fill < minFill) continue;
+    // 越接近 1 越好；超过 1 不再加分（反正要缩回来）
+    final score = fill < 1.0 ? fill : 1.0;
+    if (score > bestScore) {
+      bestScore = score;
+      best = plans;
+      bestTotal = total;
+    }
+  }
+
+  if (best == null) {
+    // 极端比例（超长全景、单张竖图等）兜底：一行一张，按可用高度均分
+    final each = (height - rowGap * (ratios.length - 1)) / ratios.length;
+    return [
+      for (var i = 0; i < ratios.length; i++)
+        PlateRowPlan([i], math.min(each, width / ratios[i])),
+    ];
+  }
+
+  // 整体等比缩小：所有行缩同一系数，行与行仍然左右对齐，只是略微内收。
+  // 缩小只作用于图片高度，行间距不动，所以要把间距先从总量里扣掉再算系数。
+  final gaps = rowGap * (best.length - 1);
+  final scale = bestTotal > height
+      ? (height - gaps) / (bestTotal - gaps)
+      : 1.0;
+  return [
+    for (final row in best) PlateRowPlan(row.indices, row.height * scale),
+  ];
+}
+
 class _SinglePage extends StatelessWidget {
   const _SinglePage({required this.spec});
 
   final MagazineExportSpec spec;
 
-  /// 一页最多 6 张：1 张 hero + 2 张方图 + 3 张底带。
-  ///
-  /// 7 张时侧栏只剩 186 宽，方图被压成条；6 张能把侧栏做到 258 见方，
-  /// hero 也更竖。少一张换来的是版面力气 —— 页脚老实写「精选 n / m 张」。
+  /// 一页最多 6 张。再多，每张就只剩邮票大 —— 用户要看的是照片，不是缩略图墙。
   static const int _maxTiles = 6;
 
   // 不对称页边距：左宽右窄、下留白多，是纸刊内页的常规做法。
-  // 四边等距会显得像网页卡片，少了"翻页"的感觉。
   static const double _padL = 64;
   static const double _padR = 56;
   static const double _padT = 44;
   static const double _padB = 44;
 
-  /// 摘要固定三行高。摘要长短不一时版面不跳，正文区高度才稳定。
+  /// 摘要固定三行高。摘要长短不一时版面不跳，图版区高度才稳定。
   static const double _summaryH = 74;
+
+  /// 图注行预留高度（含与图版的间隙）。
+  static const double _captionSpace = 34;
+
+  static const double _hGap = 18;
+  static const double _rowGap = 18;
+
+  /// 行高下限。低于这个值就不像照片、像色块了，宁可少排一行。
+  static const double _minRowH = 96;
 
   @override
   Widget build(BuildContext context) {
     final picked = _pick(spec.photos);
-    final hero = picked.isNotEmpty ? picked.first : null;
-    final side = picked.length >= 3 ? picked.sublist(1, 3) : picked.sublist(1);
-    final strip = picked.length > 3 ? picked.sublist(3) : const <Photo>[];
 
     return Container(
       color: _paper,
@@ -608,16 +733,38 @@ class _SinglePage extends StatelessWidget {
           const SizedBox(height: 18),
           Container(height: 1, color: _ink.withOpacity(0.14)),
           const SizedBox(height: 24),
-          // 月号：同一个基线上的三个字号层级，靠字号落差而不是靠对齐方式制造张力
           _issueLine(),
           const SizedBox(height: 22),
           SizedBox(width: 420, height: _summaryH, child: _summaryBlock()),
           const SizedBox(height: 30),
-          if (hero != null) Expanded(child: _body(hero, side)),
-          if (strip.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            SizedBox(height: 118, child: _strip(strip)),
-          ],
+          Expanded(
+            child: picked.isEmpty
+                ? const SizedBox.shrink()
+                : LayoutBuilder(
+                    builder: (context, box) {
+                      // 图版高度 = 剩余空间 - 图注。由它反推"最多能排几行、每行多高"。
+                      final rows = _planRows(
+                        picked,
+                        box.maxWidth,
+                        box.maxHeight - _captionSpace,
+                      );
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (var i = 0; i < rows.length; i++) ...[
+                              if (i > 0) const SizedBox(height: _rowGap),
+                              _row(rows[i]),
+                            ],
+                            const SizedBox(height: 12),
+                            _captionLine(picked.first),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
           const SizedBox(height: 20),
           Container(height: 1, color: _ink.withOpacity(0.14)),
           const SizedBox(height: 10),
@@ -668,10 +815,6 @@ class _SinglePage extends StatelessWidget {
   }
 
   /// 月号：`10 / OCTOBER / 12 EXPOSURES` 严格站在同一条字母基线上。
-  ///
-  /// 之前用 `CrossAxisAlignment.end` 配 Padding 手动往下顶，结果小字总是
-  /// 浮在数字旁边、和数字不咬合。改用 baseline 对齐后，换任何字体、
-  /// 任何月份（03 和 10 字宽不同）都不会再飘。
   Widget _issueLine() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -747,48 +890,27 @@ class _SinglePage extends StatelessWidget {
     );
   }
 
-  /// 主体：左 hero（竖构图）+ 右两张方图。
-  ///
-  /// 侧栏底部留出和图注一样的高度，两张方图的底边才能和 hero 对齐 ——
-  /// 不做这件事，"错落"就会变成"没收拾"。
-  Widget _body(Photo hero, List<Photo> side) {
+  /// 一行图：等高、宽度按各自比例，整行铺满版心。
+  Widget _row(_PlateRow row) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          flex: 61,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: _figure(hero, decodeWidth: _coverDecodeWidth)),
-              const SizedBox(height: 10),
-              _heroCaption(hero),
-            ],
+        for (var i = 0; i < row.photos.length; i++) ...[
+          if (i > 0) const SizedBox(width: _hGap),
+          SizedBox(
+            width: row.height * _ratio(row.photos[i]),
+            height: row.height,
+            child: _figure(row.photos[i]),
           ),
-        ),
-        const SizedBox(width: 18),
-        Expanded(
-          flex: 39,
-          child: Column(
-            children: [
-              for (var i = 0; i < side.length; i++) ...[
-                if (i > 0) const SizedBox(height: 12),
-                Expanded(
-                  child: _figure(side[i], decodeWidth: _contentDecodeWidth),
-                ),
-              ],
-              // 和 hero 图注同高，把两张方图的底边顶到与 hero 齐平
-              if (side.isNotEmpty) const SizedBox(height: 40),
-            ],
-          ),
-        ),
+        ],
       ],
     );
   }
 
-  Widget _heroCaption(Photo photo) {
+  Widget _captionLine(Photo photo) {
     return SizedBox(
-      height: 30,
+      height: 22,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -820,19 +942,6 @@ class _SinglePage extends StatelessWidget {
     );
   }
 
-  Widget _strip(List<Photo> photos) {
-    return Row(
-      children: [
-        for (var i = 0; i < photos.length; i++) ...[
-          if (i > 0) const SizedBox(width: 14),
-          Expanded(
-            child: _figure(photos[i], decodeWidth: _contentDecodeWidth),
-          ),
-        ],
-      ],
-    );
-  }
-
   Widget _footer() {
     return Row(
       children: [
@@ -859,12 +968,12 @@ class _SinglePage extends StatelessWidget {
     );
   }
 
-  /// 图。这一版不再往图上压任何文字 —— 图注挪到图外，照片才能整张呼吸。
-  Widget _figure(Photo photo, {required int decodeWidth}) {
+  /// 图。框的宽高比已经等于照片原始比例，所以 `cover` 退化为「不裁」。
+  Widget _figure(Photo photo) {
     return LocalImage(
       path: photo.path,
       fit: BoxFit.cover,
-      cacheWidth: decodeWidth,
+      cacheWidth: _decodeWidthOf(photo),
       errorBuilder: (_, __, ___) => ColoredBox(
         color: _ink.withOpacity(0.06),
         child: Center(
@@ -872,6 +981,30 @@ class _SinglePage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  int _decodeWidthOf(Photo photo) =>
+      photo.id == spec.photos.first.id ? _coverDecodeWidth : _contentDecodeWidth;
+
+  double _ratio(Photo photo) {
+    final r = spec.ratioOf?.call(photo.path);
+    if (r == null || !r.isFinite || r < 0.2 || r > 5.0) return 1.0;
+    return r;
+  }
+
+  List<_PlateRow> _planRows(List<Photo> picked, double width, double height) {
+    final plan = planPlateRows(
+      [for (final p in picked) _ratio(p)],
+      width,
+      height,
+      hGap: _hGap,
+      rowGap: _rowGap,
+      minRowH: _minRowH,
+    );
+    return [
+      for (final row in plan)
+        _PlateRow([for (final i in row.indices) picked[i]], row.height),
+    ];
   }
 
   /// 超过上限时按时间均匀取样，保留第一张作为 hero。

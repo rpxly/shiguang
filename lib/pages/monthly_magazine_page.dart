@@ -565,6 +565,9 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     if (_exportKind != null) return; // 防重复点击
     final count = kind == _ExportKind.single ? 1 : exportPageCount(_monthPhotos.length);
     if (count == 0) return;
+    // 先把宽高比补齐再挂离屏页：少一张尺寸，那张就会被裁成方形
+    await _ensureSizes(_monthPhotos);
+    if (!mounted) return;
     setState(() {
       _exportKind = kind;
       _exportPageKeys = List<GlobalKey>.generate(count, (_) => GlobalKey());
@@ -621,7 +624,30 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       favoriteCount: facts.favoriteCount,
       sceneOf: SceneClassifier.instance.labelFor,
       placeOf: SceneClassifier.readablePlace,
+      // 单页按原始比例排版、不裁图，所以导出必须拿到真实宽高比
+      ratioOf: _ratioOf,
     );
+  }
+
+  /// 图片宽高比。尺寸还没解析出来时返回 null 交给导出层按 1:1 兜底。
+  double? _ratioOf(String path) {
+    final size = _imgSizeCache[path];
+    if (size == null || size.width <= 1 || size.height <= 1) return null;
+    return size.width / size.height;
+  }
+
+  /// 导出前把还没解析过的图片尺寸补齐 —— 少一张就会退回方形裁切。
+  Future<void> _ensureSizes(Iterable<Photo> photos) async {
+    final missing = <String>[];
+    for (final photo in photos) {
+      if (!_imgSizeCache.containsKey(photo.path)) missing.add(photo.path);
+    }
+    if (missing.isEmpty) return;
+    final results = await Future.wait(missing.map(_getImageSize));
+    for (var i = 0; i < results.length; i++) {
+      final size = results[i];
+      if (size != null) _imgSizeCache[missing[i]] = size;
+    }
   }
 
   Future<void> _confirmDeletePhoto(Photo photo) {
