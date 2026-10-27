@@ -21,6 +21,13 @@ class MonthlyFacts {
   /// 收藏数。
   final int favoriteCount;
 
+  /// 夜间（19:00 之后或 06:00 之前）拍摄的张数。
+  ///
+  /// 场景词、地名、人脸全都缺失时（真机实测很常见：翻拍屏幕、桌面杂物这类
+  /// 照片命中不了任何场景规则），用拍摄时段兜住内容句，避免摘要退化成
+  /// 两句空话。
+  final int nightCount;
+
   /// 场景词 → 张数（只统计识别出场景词的照片）。
   final Map<String, int> sceneCounts;
 
@@ -47,6 +54,7 @@ class MonthlyFacts {
     required this.activeDays,
     required this.faceCount,
     required this.favoriteCount,
+    required this.nightCount,
     required this.sceneCounts,
     required this.sceneKnownCount,
     required this.placeCounts,
@@ -142,6 +150,7 @@ class MonthlyRecapService {
     var placeKnown = 0;
     var faceCount = 0;
     var favoriteCount = 0;
+    var nightCount = 0;
 
     for (final photo in photos) {
       final date = photo.dateTime;
@@ -166,6 +175,8 @@ class MonthlyRecapService {
 
       if (photo.hasFace) faceCount++;
       if (photo.isFavorite) favoriteCount++;
+      final hour = date.hour;
+      if (hour >= 19 || hour < 6) nightCount++;
     }
 
     int? busiestDay;
@@ -184,6 +195,7 @@ class MonthlyRecapService {
       activeDays: perDay.length,
       faceCount: faceCount,
       favoriteCount: favoriteCount,
+      nightCount: nightCount,
       sceneCounts: sceneCounts,
       sceneKnownCount: sceneKnown,
       placeCounts: placeCounts,
@@ -285,6 +297,15 @@ class MonthlyRecapService {
 
     if (facts.topCategories.isNotEmpty) {
       return '它们大致归进了「${facts.topCategories.first}」。';
+    }
+
+    if (facts.favoriteCount > 0) {
+      return '其中有 ${facts.favoriteCount} 张被你标成了精选。';
+    }
+
+    // 最后的兜底：时段是每张照片都有的确定信息，不会误判内容。
+    if (facts.nightCount > 0) {
+      return '有 ${facts.nightCount} 张是入夜之后拍的。';
     }
 
     return null;

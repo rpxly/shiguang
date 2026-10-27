@@ -9,12 +9,13 @@ Photo _photo(
   bool hasFace = false,
   bool isFavorite = false,
   String? location,
+  int hour = 12,
 }) {
   return Photo(
     id: id.isEmpty ? 'p_$day' : id,
     path: '/tmp/p$day.jpg',
     thumbnailPath: '/tmp/t$day.jpg',
-    date: DateTime(2026, 8, day, 12),
+    date: DateTime(2026, 8, day, hour),
     location: location,
     category: category,
     fileSize: 1024,
@@ -97,6 +98,40 @@ void main() {
       final facts = service.collectFacts(photos, year: 2026, month: 8);
       final recap = service.build(facts)!;
       expect(recap.text, contains('4 张有人出镜'));
+    });
+
+    test('无场景无地名无人脸时，用收藏数兜底内容句', () {
+      final photos = [
+        _photo(1, id: 'f1', isFavorite: true),
+        _photo(2, id: 'f2', isFavorite: true),
+        _photo(3, id: 'f3'),
+      ];
+      final facts = service.collectFacts(photos, year: 2026, month: 8);
+      expect(facts.favoriteCount, 2);
+      final recap = service.build(facts)!;
+      expect(recap.text, contains('2 张被你标成了精选'));
+      expect(recap.sentences.length, 3);
+    });
+
+    test('连收藏都没有时，用夜间拍摄张数兜底（真机实测的常见情况）', () {
+      final photos = [
+        _photo(1, id: 'n1', hour: 21),
+        _photo(2, id: 'n2', hour: 23),
+        _photo(3, id: 'n3', hour: 22),
+      ];
+      final facts = service.collectFacts(photos, year: 2026, month: 8);
+      expect(facts.nightCount, 3);
+      final recap = service.build(facts)!;
+      expect(recap.text, contains('3 张是入夜之后拍的'));
+      expect(recap.sentences.length, 3);
+    });
+
+    test('白天拍摄且毫无线索时只给两句，不为凑数编造第三句', () {
+      final photos = [_photo(1, id: 'd1'), _photo(2, id: 'd2')];
+      final facts = service.collectFacts(photos, year: 2026, month: 8);
+      expect(facts.nightCount, 0);
+      final recap = service.build(facts)!;
+      expect(recap.sentences.length, 2);
     });
 
     test('未填步数时收束句不得出现步数', () {
