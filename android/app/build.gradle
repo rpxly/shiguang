@@ -46,6 +46,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
+
+        // 端侧 AI POC：llama.cpp 仅编译了 arm64-v8a，限制 abi 避免 32 位设备缺 so 崩溃
+        ndk {
+            abiFilters = ["arm64-v8a"]
+        }
     }
 
     buildTypes {
