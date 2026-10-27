@@ -349,7 +349,14 @@ class OnDeviceAiService {
     this.maxTokens = kDefaultMaxTokens,
     this.timeout = const Duration(seconds: 90),
     this.inspectOverride,
+    this.bypassMemoryGate = false,
   });
+
+  /// POC 测速旁路：跳过 [kMinTotalRamMb] / [kMinFreeRamMb] 两道内存闸门。
+  ///
+  /// 只允许诊断页的「低配实测」开关传入——#10 三档真机测速需要覆盖
+  /// 3.7GB 档，但产品闸门（4096MB）保持不变；正式链路一律 false。
+  final bool bypassMemoryGate;
 
   /// 检查可用性。UI 用它决定是否显示「AI 叙事」入口。
   Future<DeviceAiStatus> inspect() async {
@@ -372,11 +379,15 @@ class OnDeviceAiService {
       reason = '仅 Android 走端侧推理';
     } else if (!profile.isArm64) {
       reason = '仅支持 arm64-v8a 设备';
-    } else if (profile.totalRamMb > 0 && profile.totalRamMb < kMinTotalRamMb) {
+    } else if (!bypassMemoryGate &&
+        profile.totalRamMb > 0 &&
+        profile.totalRamMb < kMinTotalRamMb) {
       reason = '内存不足（需 ${kMinTotalRamMb}MB 以上，当前 ${profile.totalRamMb}MB）';
     } else if (path.isEmpty || bytes < kExpectedModelBytes * 0.95) {
       reason = '模型未下载或未下完（${(bytes / 1024 / 1024).toStringAsFixed(0)}MB）';
-    } else if (profile.freeRamMb > 0 && profile.freeRamMb < kMinFreeRamMb) {
+    } else if (!bypassMemoryGate &&
+        profile.freeRamMb > 0 &&
+        profile.freeRamMb < kMinFreeRamMb) {
       reason = '可用内存偏低（${profile.freeRamMb}MB），稍后再试';
     }
 

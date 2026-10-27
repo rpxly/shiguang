@@ -36,6 +36,9 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
   OnDeviceAiService? _aiService;
   String? _modelPathError;
 
+  /// POC 测速旁路：绕过内存闸门，覆盖 3.7GB 低配机（仅本诊断页可用）。
+  bool _bypassGate = false;
+
   DeviceAiStatus? _status;
   PromptBundle? _prompt;
   bool _inspecting = true;
@@ -56,15 +59,32 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
       final modelPath = await defaultModelPath();
       if (!mounted) return;
       setState(() {
-        _aiService = OnDeviceAiService(
-          modelPath: modelPath,
-          backend: LlamaCppBackend(maxTokens: kDefaultMaxTokens),
-        );
+        _aiService = _buildService(modelPath);
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _modelPathError = '模型路径解析失败：$e');
     }
+    _inspect();
+  }
+
+  OnDeviceAiService _buildService(String modelPath) => OnDeviceAiService(
+        modelPath: modelPath,
+        backend: LlamaCppBackend(maxTokens: kDefaultMaxTokens),
+        bypassMemoryGate: _bypassGate,
+      );
+
+  /// 切换内存闸门旁路后重建服务并重新检测。
+  Future<void> _toggleBypass(bool value) async {
+    if (_bypassGate == value) return;
+    setState(() {
+      _bypassGate = value;
+      final path = _status?.modelPath;
+      if (path != null && path.isNotEmpty) {
+        _aiService = _buildService(path);
+      }
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 50));
     _inspect();
   }
 
@@ -249,6 +269,27 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
                   behavior: HitTestBehavior.opaque,
                   child: Text('重新检测',
                       style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.accent(context))),
+                ),
+              ],
+            ),
+            8.hGap,
+            // POC 测速旁路：#10 需要在 3.7GB 低配机上拿到真实速度/内存数据，
+            // 但产品闸门不变，正式链路永远走默认（false）。
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '低配实测（绕过内存闸门）',
+                    style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textTertiary(context)),
+                  ),
+                ),
+                SizedBox(
+                  height: 24,
+                  child: Switch(
+                    value: _bypassGate,
+                    onChanged: _toggleBypass,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
               ],
             ),
