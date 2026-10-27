@@ -56,3 +56,6 @@ app.*.map.json
 .tmp_*.jpg
 /.screenshots/
 /.qoder/
+
+# 真机验证截图（一次性产物，随验证重生成）
+.workbuddy/verify_*.png
