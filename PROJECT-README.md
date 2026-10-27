@@ -84,7 +84,8 @@ lib/
 │   ├── photo_scanner_service.dart     # PhotoScannerService — 分页扫描（200/页）+ 文件系统兜底
 │   ├── scene_classifier_service.dart  # SceneClassifier — ML Kit 离线场景识别（标签→中文场景词）
 │   ├── monthly_recap_service.dart     # MonthlyRecapService — 规则版月度摘要（只陈述照片事实）
-│   ├── on_device_ai_service.dart      # OnDeviceAiService — 端侧 LLM POC 骨架（提示词/闸门/兜底）
+│   ├── on_device_ai_service.dart      # OnDeviceAiService — 端侧 LLM（提示词/闸门/兜底，永不空手而归）
+│   ├── llama_cpp_backend.dart         # LlamaCppBackend — llama_cpp_dart 0.2.2 适配层（isolate 推理）
 │   ├── quote_service.dart             # QuoteService — 170 条内置文案 + 自定义文案管理
 │   ├── quote_fetcher_service.dart     # QuoteFetcherService — hitokoto 联网抓取
 │   ├── steps_service.dart             # StepsService — Health Connect 月度步数
@@ -124,9 +125,9 @@ lib/
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**AI 能力（2026-10-27 起为「规则摘要 + 端侧 LLM POC」双轨）**:
+**AI 能力（2026-10-27 起为「规则摘要 + 端侧 LLM」双轨）**:
 1. **规则版月度摘要** — `MonthlyRecapService` — 从照片事实（场景词/地名/人脸/精选/夜间）生成 3 句总结，已接入月刊页「智能摘要」
-2. **端侧 LLM（未接线）** — `OnDeviceAiService` — Qwen3-1.7B 端侧叙事的 POC 骨架，`kOnDeviceLlmWired=false` 时全部请求自动走规则版
+2. **端侧 LLM（已接线）** — `OnDeviceAiService` + `LlamaCppBackend` — Qwen3-1.7B-Q4_K_M 端侧叙事。libllama.so（llama.cpp b11919，arm64-v8a，16KB 对齐）已打入 jniLibs，Dart 侧走 llama_cpp_dart 0.2.2（isolate 推理）；事实行 <4 / 设备不达标 / 模型缺失 / 生成超时均自动降级规则版。模型放置路径见 `defaultModelPath()`（adb push 到应用专属外部目录）
 3. **联网抓取文案** — `QuoteFetcherService` — hitokoto 热句抓取（无 AI 生成）
 
 > 旧的 `AiService`（OpenAI 兼容协议）已整体移除。端侧 AI 的选型与验证结论见

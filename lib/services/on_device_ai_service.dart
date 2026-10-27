@@ -3,25 +3,24 @@ import 'dart:io';
 
 import 'monthly_recap_service.dart';
 
-/// 端侧大模型叙事 —— **POC 骨架（尚未接线）**。
+/// 端侧大模型叙事 —— **已接线（2026-10-27）**。
 ///
-/// 现状（2026-10-27 核实）：接口、提示词、设备闸门、降级链路均已就绪，
-/// 唯一缺的是 llama.cpp 的 native 库与它在 Dart 侧的那一层适配。
+/// 接线路径：llama.cpp b11919 交叉编译为 arm64-v8a 的 `libllama.so`
+/// 打入 jniLibs（16KB 对齐），Dart 侧由 `llama_cpp_backend.dart` 的
+/// [LlamaCppBackend] 适配 `llama_cpp_dart 0.2.2`。
 ///
-/// 这个开关保持 false 时，[OnDeviceAiService.narrate] 会**先给规则版结果**、
-/// 再返回 AI 不可用的原因，因此整条 UI 链路现在就能做完并上线，
-/// 不必等 NDK 与 1.1GB 模型下载到位。
+/// 依赖兼容（Flutter 3.22.3 / Dart 3.4.4）：`dependency_overrides`
+/// 把 meta 抬到 1.15.0、ffi 降到 2.1.3（均零 API 差异，升级 Flutter 后可移除）。
 ///
-/// 把 [kOnDeviceLlmWired] 改成 true 的唯一前提是：
-/// 1. 装好 NDK 26.1 + CMake 3.22.1，按 ABI 编译出 `libllama.so` 并打进 jniLibs；
-/// 2. `pubspec.yaml` 增加 `llama_cpp_dart: ^0.2.2`（Dart ≥3.2，兼容本项目 3.4.4）；
-/// 3. 新建 `lib/services/llama_cpp_backend.dart`，用 `LlamaParent` +
-///    `LlamaLoad(path: modelPath, format: ChatMLFormat())` 实现 [LlamaBackend]，
-///    在 `load()` 里 `Llama.libraryPath = 'libllama.so'`；
-/// 4. 在 [OnDeviceAiService] 的构造里注入这个实现。
+/// 这个开关为 true 时，[OnDeviceAiService.narrate] 仍保持**永不空手而归**：
+/// 事实行不足 / 设备不达标 / 模型未下载 / 加载失败 / 生成超时，
+/// 任何一步失败都先吐规则版摘要，再报原因。
 ///
-/// 第 3 步的适配代码约 30 行，是这条路线里唯一需要 NDK 的部分。
-const bool kOnDeviceLlmWired = false;
+/// 运行前置条件（不满足时自动走规则版，不会崩溃）：
+/// 1. arm64-v8a 且总内存 ≥ [kMinTotalRamMb]；
+/// 2. 模型 `qwen3-1.7b-instruct-q4_k_m.gguf` 已放到
+///    `defaultModelPath()` 指向的位置（见 llama_cpp_backend.dart）。
+const bool kOnDeviceLlmWired = true;
 
 /// 模型文件名。换成 Qwen2.5-1.5B-Instruct 时同步改这里。
 const String kDefaultModelFileName = 'qwen3-1.7b-instruct-q4_k_m.gguf';

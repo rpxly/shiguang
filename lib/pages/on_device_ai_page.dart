@@ -6,6 +6,7 @@ import '../components/glass_card.dart';
 import '../components/nav_header.dart';
 import '../repository/local_repository.dart';
 import '../services/monthly_recap_service.dart';
+import '../services/llama_cpp_backend.dart';
 import '../services/on_device_ai_service.dart';
 import '../services/scene_classifier_service.dart';
 import '../theme.dart';
@@ -29,7 +30,11 @@ class OnDeviceAiPage extends StatefulWidget {
 
 class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
   static const MonthlyRecapService _recapService = MonthlyRecapService();
-  static const OnDeviceAiService _aiService = OnDeviceAiService();
+
+  /// 已接线的服务：模型路径异步解析（应用专属外部目录优先），
+  /// 后端为 llama_cpp_dart 0.2.2 的真实实现。解析完成前保持 null。
+  OnDeviceAiService? _aiService;
+  String? _modelPathError;
 
   DeviceAiStatus? _status;
   PromptBundle? _prompt;
@@ -42,12 +47,32 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _inspect());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  /// 先解析模型路径、装好已接线的服务，再做首次检测。
+  Future<void> _bootstrap() async {
+    try {
+      final modelPath = await defaultModelPath();
+      if (!mounted) return;
+      setState(() {
+        _aiService = OnDeviceAiService(
+          modelPath: modelPath,
+          backend: LlamaCppBackend(maxTokens: kDefaultMaxTokens),
+        );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _modelPathError = '模型路径解析失败：$e');
+    }
+    _inspect();
   }
 
   Future<void> _inspect() async {
+    final service = _aiService;
+    if (service == null) return; // 等待 _bootstrap 完成，保持「检测中」
     setState(() => _inspecting = true);
-    final status = await _aiService.inspect();
+    final status = await service.inspect();
     if (!mounted) return;
     setState(() {
       _status = status;
@@ -84,6 +109,11 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
   }
 
   Future<void> _run() async {
+    final service = _aiService;
+    if (service == null) {
+      setState(() => _notes.add('服务初始化中，请稍候'));
+      return;
+    }
     final request = _request();
     if (request.facts.isEmpty) {
       setState(() => _notes.add('本月没有照片，先扫描相册'));
@@ -95,7 +125,7 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
       _notes.clear();
     });
 
-    await for (final event in _aiService.narrate(request)) {
+    await for (final event in service.narrate(request)) {
       if (!mounted) return;
       switch (event) {
         case NarrationStatus(:final message):
@@ -230,17 +260,17 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
 
   Widget _buildWiringCard(BuildContext context) {
     final steps = <String>[
-      'NDK 26.1 + CMake 3.22.1 安装就绪',
-      '交叉编译 arm64-v8a 的 libllama.so 并打入 jniLibs',
-      'pubspec 增加 llama_cpp_dart ^0.2.2',
-      '新建 llama_cpp_backend.dart 实现 LlamaBackend',
-      '把 kOnDeviceLlmWired 改为 true 并注入后端',
+      'NDK 26.1 + CMake 3.22.1 就绪',
+      'libllama.so（llama.cpp b11919，16KB 对齐）已打入 jniLibs',
+      'llama_cpp_dart 0.2.2（meta/ffi 依赖已 override 兼容）',
+      'llama_cpp_backend.dart 已实现 LlamaBackend',
+      'kOnDeviceLlmWired = true，后端已注入本页',
     ];
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cardTitle(context, '接线清单'),
+          _cardTitle(context, '接线状态'),
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
@@ -252,20 +282,26 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
             ),
           ),
           10.hGap,
-          ...steps.asMap().entries.map((e) => Padding(
+          ...steps.map((s) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${e.key + 1}. ',
-                        style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textTertiary(context))),
+                    Text('✓ ',
+                        style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.success)),
                     Expanded(
-                      child: Text(e.value,
+                      child: Text(s,
                           style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textSecondary(context))),
                     ),
                   ],
                 ),
               )),
+          if (_modelPathError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('· $_modelPathError',
+                  style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.error)),
+            ),
         ],
       ),
     );

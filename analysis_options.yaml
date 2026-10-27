@@ -9,6 +9,12 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # 根目录 flutter/ 是 7 月误克隆进来的 Flutter SDK（2.8GB，已被 .gitignore），
+    # 不排除会让 flutter analyze 扫进 SDK 自带的 benchmarks 测试报几千个 error。
+    - flutter/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

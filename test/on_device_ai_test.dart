@@ -167,15 +167,16 @@ void main() {
       expect(profile.abi, isNotEmpty);
     });
 
-    test('未接线时 canRun 为 false 且给出原因', () async {
+    test('默认构造（已接线）：桌面端 canRun 为 false 且给出原因', () async {
       final status = await const OnDeviceAiService().inspect();
       expect(status.canRun, isFalse);
-      expect(status.reason, contains('未接线'));
+      // 桌面端：'仅 Android 走端侧推理'；无模型路径：'模型未下载或未下完'
+      expect(status.reason, isNotEmpty);
     });
   });
 
   group('叙事降级链路', () {
-    test('未接线时先给规则版，并带上原因', () async {
+    test('默认构造（已接线）：设备不达标时先给规则版，并带上原因', () async {
       final events = await const OnDeviceAiService()
           .narrate(NarrationRequest(facts: _facts()))
           .toList();
@@ -183,7 +184,7 @@ void main() {
       final done = events.whereType<NarrationDone>().single;
       expect(done.fromFallback, isTrue);
       expect(done.text, contains('8 张照片'));
-      expect(done.note, contains('未接线'));
+      expect(done.note, isNotEmpty); // 桌面端为「仅 Android 走端侧推理」
       expect(events.whereType<NarrationFailed>(), isEmpty);
     });
 
