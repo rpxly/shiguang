@@ -46,12 +46,43 @@
 | 步骤 | 内容 | 耗时性质 | 说明 |
 |---|---|---|---|
 | 0 | 安装 Android cmdline-tools → `sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"` | 下载约 1.5–2GB | 当前 SDK 里连 `cmdline-tools` 都没有，需先装 |
-| 1 | `git clone https://github.com/ggml-org/llama.cpp`（可改用国内镜像） | 仓库较大 | 建议固定 tag，避免上游 API 变动 |
+| 1 | `git clone https://github.com/ggml-org/llama.cpp`（可改用国内镜像） | 仓库较大 | **必须固定到 4ffc47cb2001e7d523f9ff525335bbe34b1a2858**（见下方「硬约束」） |
 | 2 | CMake 交叉编译 arm64-v8a，产出 `libllama.so` | 视机器 5–20 分钟 | 需 `-DGGML_OPENMP=OFF`（Android NDK 无 OpenMP）等常见开关 |
 | 3 | `.so` 放入 `android/app/src/main/jniLibs/arm64-v8a/` | — | 同时在 `build.gradle` 的 `abiFilters` 里只保留 arm64，避免其他 ABI 装机即崩 |
-| 4 | `pubspec.yaml` 加 `llama_cpp_dart: ^0.2.2`，`flutter pub get` | 1 分钟 | 已核实与 Dart 3.4.4 兼容 |
-| 5 | 实现 `lib/services/llama_cpp_backend.dart`（约 30 行） | — | 代码骨架已就绪，见下节 |
+| 4 | `pubspec.yaml` 加 `llama_cpp_dart: 0.2.2`（锁版本），`flutter pub get` | 1 分钟 | 还需两条 `dependency_overrides`，见下方「硬约束」 |
+| 5 | 实现 `lib/services/llama_cpp_backend.dart` | — | 已实现，见文件内注释（libraryPath / formatter / promptId 三个坑） |
 | 6 | 模型：`qwen3-1.7b-instruct-q4_k_m.gguf`（约 1.1GB） | 下载 | huggingface.co 实测不可达；modelscope.cn / hf-mirror.com 实测可用 |
+
+### 两条硬约束（2026-10-27 真机实测踩出来的）
+
+**① `.so` 的 llama.cpp 版本必须与 Dart 绑定一致。**
+
+`llama_cpp_dart 0.2.2` 的 FFI 结构体是按 llama.cpp `4ffc47cb2001e7d523f9ff525335bbe34b1a2858`（GGML 0.9.4，约 b6xxx 期间）生成的。用更新的 b11919 编出来的 `.so`，`llama_model_default_params()` 等按值返回的结构体尺寸不一致，Dart 侧缓冲区写穿，真机表现为**一加载模型就 SIGSEGV**：
+
+```
+F libc : Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x104
+#00 pc ... libllama.so (llama_model_loader::llama_model_loader(...)+380)
+#02 pc ... libllama.so (llama_model_load_from_file+200)
+```
+
+→ 结论：`git checkout` 到该 commit 再编，不要用 master/最新 release。包里 `src/llama.cpp` 是空子模块，拿不到源码，必须自己 clone。
+
+**② Flutter 3.22.3 需要两条依赖覆盖。**
+
+`llama_cpp_dart 0.2.2 → typed_isolate 6.0.0` 要 `meta ^1.15.0`（Flutter 钉死 1.12.0）；`llama_cpp_dart` 又要 `ffi ^2.1.4`（需 Dart ≥3.7，本项目 3.4.4）。两者都只需改 pubspec 约束，无 API 差异：
+
+```yaml
+dependency_overrides:
+  meta: 1.15.0   # 纯注解包，无原生代码
+  ffi: 2.1.3     # 2.1.4 相对 2.1.3 零 API 变化，只因 tall style 格式化抬了 SDK 门槛
+```
+
+**③ 三个 API 细节（README 有过时之处，已按源码核实）。**
+
+- `Llama.libraryPath` 在 Android 上默认是 `libmtmd.so`（多模态库），纯文本链路必须显式改 `libllama.so`；
+- 0.2.2 的 `LlamaLoad` **没有** `format` 参数，formatter 是 `LlamaParent` 第二个位置参数；提示词已是 ChatML 成品时不传 formatter；
+- `sendPrompt()` 返回的是 **promptId** 不是正文；正文要从 `parent.stream` 收，`await parent.waitForCompletion(promptId)` 收尾。
+
 
 **已就绪的部分（本次已落地）**：`lib/services/on_device_ai_service.dart` 里已有 `LlamaBackend` 抽象、提示词构造、设备闸门（读 `/proc/meminfo` 判内存、判 ABI）、流式事件协议、以及**永不空手而归的兜底链路**。第 5 步只需实现 `LlamaBackend` 三个方法并注入，`kOnDeviceLlmWired` 改 `true` 即接通。
 
@@ -90,13 +121,15 @@
 
 ### 4.4 回滚方案（必须提前准备）
 
-本项目**没有 git 仓库**（实测 `git status` 报 `not a git repository`）。在执行任何升级前，第一件事是：
+初版写这一节时项目**确实没有 git 仓库**；POC 期间已 `git init` 并提交基线，前置条件已满足。真正升级前还要补两步：
 
 ```bash
-git init && git add -A && git commit -m "chore: 升级前基线快照"
+git tag pre-flutter-upgrade          # 可回滚锚点
+git stash list                       # 确认没有未提交改动被卷进去
 ```
 
-没有这一步，任何升级都不可回滚——这比选 A 还是选 B 更紧急。
+回滚动作：`F:\flutter` 用 `git -C F:/flutter checkout 3.22.3`（SDK 目录本身是 git 克隆）、
+`android/` 三处版本号反向改回、`flutter pub get` 重解析 —— 所以**升级动过的每个文件都要在同一次 commit 里**，否则回滚会留下一半新一半旧的状态。
 
 ---
 
@@ -121,3 +154,65 @@ git init && git add -A && git commit -m "chore: 升级前基线快照"
 3. 100 次生成的**空文本 / 截断 / 重复循环**发生率；
 4. 与规则版的人评对比（哪一版更愿意「导出分享」，至少 10 人）；
 5. 模型目录占用与卸载后残留。
+
+---
+
+## 七、Phase 0 真机实测记录
+
+### 7.1 三档矩阵（截至 2026-10-27）
+
+| 档位 | 设备 / 系统 | 总内存 | 首 token | 生成速度 | 峰值 PSS | 60 字总耗时 | 状态 |
+|---|---|---|---|---|---|---|---|
+| 低（3.7GB） | iPlay80Mini / Android 16 / arm64-v8a / 800×1340 | 3743MB | **26.1–26.7s** | ≈1.7 tok/s | **1.59GB** | **38.5s**（44 字） | ✅ 实测完成 |
+| 中（4GB） | 待补 | — | — | — | — | — | ⬜ 待设备 |
+| 高（8GB） | 待补 | — | — | — | — | — | ⬜ 待设备 |
+
+**低档明细（两次 isolate 模式实测）**
+
+| 指标 | 第 1 次 | 第 2 次 |
+|---|---|---|
+| 首 token 延迟 | 26.1s | 26.7s |
+| 输出字数 | 44 字 | 71 字 |
+| 总耗时 | 38.5s | 41.7s |
+| 峰值 PSS | 1 597 836 KB（≈1.59GB） | 同量级 |
+| 生成后回落 | 360–370MB | 同量级 |
+| UI 表现 | 不卡、不崩（推理在子 isolate） | 同 |
+
+内存构成：模型 mmap **1050MB** + CPU compute buffer **≈150MB** + 应用基线 ≈200MB。
+设备仅 3.74GB，**低于 `kMinTotalRamMb = 4096` 的正式闸门**，本次是用诊断页的
+「低配实测（绕过内存闸门）」开关强行放行的 —— 也就是说：**能跑通，但出厂默认不会在这类机型上跑**，
+这条闸门保留是正确的（3.7GB 机型上 1.59GB 常驻已接近 LMK 红线）。
+
+**结论（对 Phase 1 门槛）**：60 字 < 15s 的中端机目标，按 1.7 tok/s 折算，
+需要 ≥8 tok/s 才有余量——低配档**不达标**，符合预期（低配走规则版）。
+中/高档数据补齐后才能判定 Phase 1 是否可投。
+
+### 7.2 质量观察（1.7B 的已知短板，需靠兜底而非靠调参解决）
+
+同一份事实，两次生成内容差异明显，且都会**在事实之外加形容词**：
+
+- 事实：36 张 / 4 天 / 有夜间
+- 输出：`10 月共拍摄 36 张照片，分布在 4 天内。夜间的拍摄记录了城市的光影变化，白天的景色则捕捉了自然与人文的交融。这月的拍摄充满平静与真实。`
+
+数字与天数**忠实**，但「城市的光影变化」「自然与人文的交融」是模型自行脑补的画面描述。
+上一轮「天气晴朗」则来自 `magazine_meta` 的 weather 字段（属事实，非编造）。
+
+→ 处置：**不追求消除脑补**，而是守住两条线：①事实行 <4 时不交给模型（已有闸门）；
+②叙事只作为封面文案，导出/分享前的数字口径一律走规则版事实。这两条已写入 #11/#12。
+
+### 7.3 复现步骤（换机器补齐矩阵时照做）
+
+```bash
+# 1. 模型放应用内部目录（不能放 /storage/emulated/0，FUSE 会卡死）
+adb push F:/path/qwen3-1.7b-instruct-q4_k_m.gguf /sdcard/
+adb shell run-as com.example.shiguang cp /sdcard/qwen3-1.7b-instruct-q4_k_m.gguf files/
+
+# 2. 装机
+flutter build apk --debug --target-platform android-arm64 && flutter install
+
+# 3. 打开「端侧 AI 诊断」→ 开「低配实测（绕过内存闸门）」→ 生成本月摘要
+#    logcat 过滤 tag "flutter" 看 [AI] 首 token / 生成结束打点
+
+# 4. 采内存
+adb shell dumpsys meminfo com.example.shiguang | grep -i "TOTAL PSS"
+```

@@ -127,7 +127,7 @@ lib/
 
 **AI 能力（2026-10-27 起为「规则摘要 + 端侧 LLM」双轨）**:
 1. **规则版月度摘要** — `MonthlyRecapService` — 从照片事实（场景词/地名/人脸/精选/夜间）生成 3 句总结，已接入月刊页「智能摘要」
-2. **端侧 LLM（已接线）** — `OnDeviceAiService` + `LlamaCppBackend` — Qwen3-1.7B-Q4_K_M 端侧叙事。libllama.so（llama.cpp b11919，arm64-v8a，16KB 对齐）已打入 jniLibs，Dart 侧走 llama_cpp_dart 0.2.2（isolate 推理）；事实行 <4 / 设备不达标 / 模型缺失 / 生成超时均自动降级规则版。模型放置路径见 `defaultModelPath()`（adb push 到应用专属外部目录）
+2. **端侧 LLM（已接线）** — `OnDeviceAiService` + `LlamaCppBackend` — Qwen3-1.7B-Q4_K_M 端侧叙事。libllama.so（llama.cpp **4ffc47c**，arm64-v8a，16KB 对齐）已打入 jniLibs，Dart 侧走 llama_cpp_dart 0.2.2（isolate 推理）；事实行 <4 / 设备不达标 / 模型缺失 / 生成超时均自动降级规则版。模型路径见 `defaultModelPath()`：**必须放应用内部目录**（`/data/user/0/<pkg>/app_flutter/`，用 `adb push /sdcard/x.gguf` + `run-as cp` 进去）；放 `/storage/emulated/0/Android/data/...`（FUSE）会加载卡死
 3. **联网抓取文案** — `QuoteFetcherService` — hitokoto 热句抓取（无 AI 生成）
 
 > 旧的 `AiService`（OpenAI 兼容协议）已整体移除。端侧 AI 的选型与验证结论见

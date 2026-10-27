@@ -305,4 +305,40 @@ void main() {
       expect(const NarrationToken('字').token, '字');
     });
   });
+
+  group('think 标签清洗', () {
+    Future<String> collect(List<String> tokens) async {
+      final out = StringBuffer();
+      await for (final t in stripThinking(Stream.fromIterable(tokens))) {
+        out.write(t);
+      }
+      return out.toString();
+    }
+
+    test('空 think 块被剥掉，正文完整保留', () async {
+      final text = await collect(['<think>', '\n\n', '</think>', '\n\n这个月拍了 36 张。']);
+      expect(text, '这个月拍了 36 张。');
+    });
+
+    test('think 被拆成多个 token 也能正确剥除', () async {
+      final text = await collect(['<thi', 'nk>思考', '一些', '内容</thi', 'nk>正文']);
+      expect(text, '正文');
+    });
+
+    test('没有 think 标签时原样输出', () async {
+      final text = await collect(['这个月', '拍了 8 张。']);
+      expect(text, '这个月拍了 8 张。');
+    });
+
+    test('只有 think 没有正文时返回空串（交给上层兜底）', () async {
+      final text = await collect(['<think>', '想', '</think>']);
+      expect(text.trim(), isEmpty);
+    });
+
+    test('超过 512 字符无闭合标签时不误杀', () async {
+      final long = '刚' * 600;
+      final text = await collect([long]);
+      expect(text, long);
+    });
+  });
 }

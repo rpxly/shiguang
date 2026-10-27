@@ -70,6 +70,9 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
 
   OnDeviceAiService _buildService(String modelPath) => OnDeviceAiService(
         modelPath: modelPath,
+        // isolate 模式：模型加载与推理都在子 isolate，不卡 UI。
+        // 需要看 llama.cpp native 日志时把 verbose 改成 true（会写
+        // app_flutter/llama_stderr.log）。
         backend: LlamaCppBackend(maxTokens: kDefaultMaxTokens),
         bypassMemoryGate: _bypassGate,
       );
@@ -302,7 +305,7 @@ class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
   Widget _buildWiringCard(BuildContext context) {
     final steps = <String>[
       'NDK 26.1 + CMake 3.22.1 就绪',
-      'libllama.so（llama.cpp b11919，16KB 对齐）已打入 jniLibs',
+      'libllama.so（llama.cpp 4ffc47c，16KB 对齐）已打入 jniLibs',
       'llama_cpp_dart 0.2.2（meta/ffi 依赖已 override 兼容）',
       'llama_cpp_backend.dart 已实现 LlamaBackend',
       'kOnDeviceLlmWired = true，后端已注入本页',

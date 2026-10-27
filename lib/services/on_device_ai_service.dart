@@ -5,9 +5,10 @@ import 'monthly_recap_service.dart';
 
 /// 端侧大模型叙事 —— **已接线（2026-10-27）**。
 ///
-/// 接线路径：llama.cpp b11919 交叉编译为 arm64-v8a 的 `libllama.so`
-/// 打入 jniLibs（16KB 对齐），Dart 侧由 `llama_cpp_backend.dart` 的
-/// [LlamaCppBackend] 适配 `llama_cpp_dart 0.2.2`。
+/// 接线路径：llama.cpp `4ffc47cb`（**必须与 Dart 绑定同源**，否则加载即
+/// SIGSEGV，详见选型文档「两条硬约束」）交叉编译为 arm64-v8a 的
+/// `libllama.so` 打入 jniLibs（16KB 对齐），Dart 侧由
+/// `llama_cpp_backend.dart` 的 [LlamaCppBackend] 适配 `llama_cpp_dart 0.2.2`。
 ///
 /// 依赖兼容（Flutter 3.22.3 / Dart 3.4.4）：`dependency_overrides`
 /// 把 meta 抬到 1.15.0、ffi 降到 2.1.3（均零 API 差异，升级 Flutter 后可移除）。
@@ -458,13 +459,22 @@ class OnDeviceAiService {
 
     yield const NarrationStatus('正在生成…');
     final buffer = StringBuffer();
+    final stopwatch = Stopwatch()..start();
+    var firstTokenMs = -1;
     try {
-      await for (final token
-          in backend.generate(prompt.toChatMl(), maxTokens: maxTokens).timeout(timeout)) {
+      final raw = backend.generate(prompt.toChatMl(), maxTokens: maxTokens).timeout(timeout);
+      await for (final token in stripThinking(raw)) {
+        if (firstTokenMs < 0) {
+          firstTokenMs = stopwatch.elapsedMilliseconds;
+          print('[AI] 首 token ${firstTokenMs}ms');
+        }
         buffer.write(token);
         yield NarrationToken(token);
       }
+      stopwatch.stop();
       final text = buffer.toString().trim();
+      print('[AI] 生成结束：${text.length} 字，总耗时 ${stopwatch.elapsedMilliseconds}ms'
+          '，首 token ${firstTokenMs}ms');
       if (text.isEmpty) {
         if (recap != null) {
           yield NarrationDone(recap.text, fromFallback: true, note: '模型返回空文本');
@@ -485,5 +495,78 @@ class OnDeviceAiService {
         await backend.dispose();
       } catch (_) {}
     }
+  }
+}
+
+/// 剥掉 Qwen3 输出的 `<think>…</think>` 包裹。
+///
+/// 真机实测（2026-10-27）：即便提示词末尾带了 `/no_think`，模型仍会吐出一个
+/// **空的** `<think>\n\n</think>` 再写正文。这段不能进 UI，否则摘要开口就是标签。
+///
+/// 关键约束：**不能为了剥标签牺牲流式**。只有当缓冲内容可能是 `<think>`
+/// 的前缀时才继续等；一旦确认不是，立刻把已缓冲内容放出去。
+///
+/// - 前导空白不计入判断（模型常见 `\n<think>`）；
+/// - 缓冲超过 512 字符仍无闭合标签，认定不是 think 块，原样放行（防误杀）；
+/// - 全程只有 think 没有正文时返回空，让上层按「空文本」走规则版兜底。
+Stream<String> stripThinking(Stream<String> source) async* {
+  const open = '<think>';
+  const close = '</think>';
+  final buffer = StringBuffer();
+  var decided = false; // 已确认不是 think 块 → 后续 token 直接透传
+  var inside = false; // 已确认进入 think 块 → 等闭合标签
+  var trimNext = false; // 闭合标签后紧跟的空白要吃掉（可能落在下一个 token）
+
+  await for (final token in source) {
+    if (decided) {
+      if (trimNext) {
+        final trimmedToken = token.replaceFirst(RegExp(r'^\s+'), '');
+        if (trimmedToken.isEmpty) continue;
+        trimNext = false;
+        yield trimmedToken;
+      } else {
+        yield token;
+      }
+      continue;
+    }
+    buffer.write(token);
+    final text = buffer.toString();
+    final trimmed = text.trimLeft();
+
+    if (!inside) {
+      if (trimmed.startsWith(open)) {
+        inside = true;
+      } else if (trimmed.isNotEmpty && open.startsWith(trimmed)) {
+        continue; // 还可能是 <think> 的前缀，继续攒
+      } else {
+        decided = true;
+        buffer.clear();
+        yield text;
+        continue;
+      }
+    }
+
+    final idx = buffer.toString().indexOf(close);
+    if (idx >= 0) {
+      decided = true;
+      final rest = buffer.toString().substring(idx + close.length);
+      buffer.clear();
+      final clean = rest.replaceFirst(RegExp(r'^\s+'), '');
+      if (clean.isNotEmpty) {
+        yield clean;
+      } else {
+        trimNext = true; // 正文在下一个 token 里，先吃掉前导空白
+      }
+    } else if (buffer.length > 512) {
+      decided = true;
+      final pending = buffer.toString();
+      buffer.clear();
+      yield pending;
+    }
+  }
+
+  if (!decided) {
+    final pending = buffer.toString();
+    if (pending.trim().isNotEmpty) yield pending;
   }
 }
