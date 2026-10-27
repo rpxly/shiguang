@@ -1,0 +1,58 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# ── 项目补充（2026-10-27 建立基线时追加）────────────────────────
+# 项目内自带的 Flutter SDK 副本（约 2.8G，且内含独立 .git），不入库
+/flutter/
+
+# 本机 Android SDK 路径，不入库
+/android/local.properties
+
+# 发布产物与调试截图（体积大、可重新生成）
+*.apk
+*.aab
+.tmp_*.png
+.tmp_*.jpg
+/.screenshots/
+/.qoder/

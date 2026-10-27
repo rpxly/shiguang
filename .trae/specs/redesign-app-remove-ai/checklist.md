@@ -1,0 +1,21 @@
+# Checklist
+
+- [x] 代码中不存在 `AiService`、`AiConfigDialog` 的任何引用（全局搜索 0 命中）
+- [x] `lib/services/ai_service.dart`、`lib/pages/ai_config_dialog.dart` 已删除
+- [x] `quote_fetcher_service.dart` 仅保留 hitokoto 抓取入库，无 AI 生成代码与 ai_service 引用
+- [x] 设置页仅含「外观」「应用」两个分区，无 AI/API Key 入口；「联网自动获取文案」开关保留可用
+- [x] 月刊编辑器与 magazine_sheets 中无「AI 优化文案」按钮；文案面板无 AI 裂变入口
+- [x] `LocalRepository` 无 `getAi*`/`setAi*` 方法，`getAutoFetchQuotes/setAutoFetchQuotes` 保留
+- [x] `Photo.aiSuggestion` 已更名为 `userMark`，HiveField 序号保持 14，`photo.g.dart` 已重新生成
+- [x] 首页统计、整理页分组、详情页、滑动整理页的「已整理」判断统一使用 `userMark`
+- [x] 旧数据（aiSuggestion='keep'）升级后仍判定为已整理
+- [x] 底部导航为「首页/整理/月刊」3 个 Tab，Tab 首次访问创建 + Offstage 保活
+- [x] 整理 Tab 内含「未整理/相簿」子页签与「清理建议/精选」入口
+- [x] 首页右上角设置入口可用，返回后首页状态保留
+- [x] 首页工具入口可打开胶片索引页（WebView）并可返回
+- [x] 月刊编辑器内可打开文案选择面板，展示内置 + 自建 + 联网文案，支持分类筛选、搜索、选中填入、新建、删除、联网获取（hitokoto）
+- [x] 底部无「文案」Tab，原 quote_library_page 已移除或改造
+- [x] theme.dart 新令牌应用于 TabBar、卡片、按钮、空态、骨架屏、设置页
+- [x] 暗色模式各页面视觉统一（深色玻璃、渐变强调、层级清晰），浅色模式对比度可读
+- [x] `flutter analyze` 0 error、0 warning；`flutter test` 全部通过
+- [x] debug APK 构建成功并安装真机：3 Tab 切换、滑动整理标记、月刊选文案、设置页、胶片索引入口均可用，logcat 无 FATAL

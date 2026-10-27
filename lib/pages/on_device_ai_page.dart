@@ -1,0 +1,461 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../components/app_background.dart';
+import '../components/glass_card.dart';
+import '../components/nav_header.dart';
+import '../repository/local_repository.dart';
+import '../services/monthly_recap_service.dart';
+import '../services/on_device_ai_service.dart';
+import '../services/scene_classifier_service.dart';
+import '../theme.dart';
+
+/// 端侧 AI 诊断页（POC 用，随 debug 包一起发）。
+///
+/// 这一页解决两个现实问题：
+/// 1. **不用装 NDK 也能先验证提示词质量** —— 「复制提示词」把它粘到桌面版
+///    llama.cpp，就能用同一份 GGUF 模型看中文产出够不够用；
+/// 2. **接线后只需在这一页看结果** —— 设备闸门、模型进度、流式 token、
+///    兜底原因全部显示在同一屏，避免在月刊页反复点。
+class OnDeviceAiPage extends StatefulWidget {
+  final LocalRepository repository;
+  final VoidCallback onBack;
+
+  const OnDeviceAiPage({super.key, required this.repository, required this.onBack});
+
+  @override
+  State<OnDeviceAiPage> createState() => _OnDeviceAiPageState();
+}
+
+class _OnDeviceAiPageState extends State<OnDeviceAiPage> {
+  static const MonthlyRecapService _recapService = MonthlyRecapService();
+  static const OnDeviceAiService _aiService = OnDeviceAiService();
+
+  DeviceAiStatus? _status;
+  PromptBundle? _prompt;
+  bool _inspecting = true;
+  bool _running = false;
+
+  String _output = '';
+  final List<String> _notes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _inspect());
+  }
+
+  Future<void> _inspect() async {
+    setState(() => _inspecting = true);
+    final status = await _aiService.inspect();
+    if (!mounted) return;
+    setState(() {
+      _status = status;
+      _inspecting = false;
+    });
+  }
+
+  /// 取本月照片并聚合成事实。
+  MonthlyFacts _monthFacts() {
+    final now = DateTime.now();
+    final photos = widget.repository
+        .getAllPhotos()
+        .where((p) => p.dateTime.year == now.year && p.dateTime.month == now.month)
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    return _recapService.collectFacts(
+      photos,
+      year: now.year,
+      month: now.month,
+      sceneOf: SceneClassifier.instance.labelFor,
+      placeOf: SceneClassifier.readablePlace,
+    );
+  }
+
+  NarrationRequest _request() {
+    final facts = _monthFacts();
+    final meta = widget.repository.getMagazineMeta(facts.year, facts.month);
+    return NarrationRequest(
+      facts: facts,
+      mood: meta?['mood'] as String?,
+      weather: meta?['weather'] as String?,
+      steps: (meta?['healthSteps'] as int?) ?? 0,
+    );
+  }
+
+  Future<void> _run() async {
+    final request = _request();
+    if (request.facts.isEmpty) {
+      setState(() => _notes.add('本月没有照片，先扫描相册'));
+      return;
+    }
+    setState(() {
+      _running = true;
+      _output = '';
+      _notes.clear();
+    });
+
+    await for (final event in _aiService.narrate(request)) {
+      if (!mounted) return;
+      switch (event) {
+        case NarrationStatus(:final message):
+          setState(() => _notes.add(message));
+        case NarrationToken(:final token):
+          setState(() => _output += token);
+        case NarrationDone(:final text, :final fromFallback, :final note):
+          setState(() {
+            _output = text;
+            if (fromFallback) _notes.add('来自规则版');
+            if (note != null) _notes.add(note);
+          });
+        case NarrationFailed(:final reason):
+          setState(() => _notes.add('失败：$reason'));
+      }
+    }
+    if (mounted) setState(() => _running = false);
+  }
+
+  Future<void> _showPrompt() async {
+    final request = _request();
+    if (request.facts.isEmpty) {
+      setState(() => _notes.add('本月没有照片，提示词为空'));
+      return;
+    }
+    final prompt = const RecapPromptBuilder().build(request);
+    setState(() => _prompt = prompt);
+  }
+
+  Future<void> _copyPrompt() async {
+    final prompt = _prompt ?? const RecapPromptBuilder().build(_request());
+    await Clipboard.setData(ClipboardData(text: prompt.toChatMl()));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('提示词已复制，可直接粘到桌面版 llama.cpp')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassScaffold(
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            NavHeader(title: '端侧 AI 诊断', subtitle: 'Phase 0 · POC', onBack: widget.onBack),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacings.lg,
+                AppSpacings.lg,
+                AppSpacings.lg,
+                0,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildStatusCard(context),
+                  16.hGap,
+                  _buildWiringCard(context),
+                  16.hGap,
+                  _buildTrialCard(context),
+                  16.hGap,
+                  _buildPromptCard(context),
+                ],
+              ),
+            ),
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusCard(BuildContext context) {
+    final status = _status;
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cardTitle(context, '设备与模型'),
+          if (_inspecting)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text('检测中…', style: TextStyle(fontSize: AppFontSizes.sm, color: AppColors.textTertiary(context))),
+            )
+          else if (status != null) ...[
+            _kv(context, '系统', '${status.profile.os} / ${status.profile.abi}'),
+            _kv(context, '内存', '${status.profile.totalRamMb}MB 总 / ${status.profile.freeRamMb}MB 可用'),
+            _kv(context, '模型文件', status.modelPath.isEmpty ? '未配置' : status.modelPath),
+            _kv(
+              context,
+              '模型体积',
+              '${(status.modelBytes / 1024 / 1024).toStringAsFixed(0)}MB'
+              ' / 期望 ${(kExpectedModelBytes / 1024 / 1024).toStringAsFixed(0)}MB',
+            ),
+            12.hGap,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+              child: LinearProgressIndicator(
+                value: status.modelProgress,
+                minHeight: 4,
+                backgroundColor: AppColors.divider(context),
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent(context)),
+              ),
+            ),
+            12.hGap,
+            Row(
+              children: [
+                Icon(
+                  status.canRun ? Icons.check_circle_outline : Icons.info_outline,
+                  size: 16,
+                  color: status.canRun ? AppColors.success : AppColors.textTertiary(context),
+                ),
+                6.wGap,
+                Expanded(
+                  child: Text(
+                    status.canRun ? '可跑端侧模型' : status.reason,
+                    style: TextStyle(fontSize: AppFontSizes.sm, color: AppColors.textSecondary(context)),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: _inspect,
+                  behavior: HitTestBehavior.opaque,
+                  child: Text('重新检测',
+                      style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.accent(context))),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWiringCard(BuildContext context) {
+    final steps = <String>[
+      'NDK 26.1 + CMake 3.22.1 安装就绪',
+      '交叉编译 arm64-v8a 的 libllama.so 并打入 jniLibs',
+      'pubspec 增加 llama_cpp_dart ^0.2.2',
+      '新建 llama_cpp_backend.dart 实现 LlamaBackend',
+      '把 kOnDeviceLlmWired 改为 true 并注入后端',
+    ];
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cardTitle(context, '接线清单'),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              kOnDeviceLlmWired ? '当前：已接线' : '当前：未接线（所有请求自动走规则版）',
+              style: TextStyle(
+                fontSize: AppFontSizes.xs,
+                color: kOnDeviceLlmWired ? AppColors.success : AppColors.textTertiary(context),
+              ),
+            ),
+          ),
+          10.hGap,
+          ...steps.asMap().entries.map((e) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${e.key + 1}. ',
+                        style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textTertiary(context))),
+                    Expanded(
+                      child: Text(e.value,
+                          style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textSecondary(context))),
+                    ),
+                  ],
+                ),
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrialCard(BuildContext context) {
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cardTitle(context, '试跑'),
+          Row(
+            children: [
+              Expanded(
+                child: _actionButton(
+                  context,
+                  label: _running ? '生成中…' : '生成本月摘要',
+                  icon: Icons.auto_awesome,
+                  onTap: _running ? null : _run,
+                ),
+              ),
+              10.wGap,
+              Expanded(
+                child: _actionButton(
+                  context,
+                  label: '刷新状态',
+                  icon: Icons.refresh,
+                  onTap: _inspecting ? null : _inspect,
+                ),
+              ),
+            ],
+          ),
+          if (_output.isNotEmpty) ...[
+            12.hGap,
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: GlassColors.surface(context),
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+              ),
+              child: SelectableText(
+                _output,
+                style: TextStyle(
+                  fontSize: AppFontSizes.sm,
+                  height: 1.7,
+                  color: AppColors.textPrimary(context),
+                ),
+              ),
+            ),
+          ],
+          if (_notes.isNotEmpty) ...[
+            10.hGap,
+            ..._notes.map((n) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('· $n',
+                      style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textTertiary(context))),
+                )),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPromptCard(BuildContext context) {
+    final prompt = _prompt;
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cardTitle(context, '发给模型的提示词'),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '复制后粘到桌面版 llama.cpp，可在不装 NDK 的情况下先验证 1.7B 的中文产出。',
+              style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textTertiary(context), height: 1.5),
+            ),
+          ),
+          10.hGap,
+          Row(
+            children: [
+              Expanded(
+                child: _actionButton(
+                  context,
+                  label: prompt == null ? '预览提示词' : '收起',
+                  icon: Icons.visibility_outlined,
+                  onTap: prompt == null ? _showPrompt : () => setState(() => _prompt = null),
+                ),
+              ),
+              10.wGap,
+              Expanded(
+                child: _actionButton(
+                  context,
+                  label: '复制提示词',
+                  icon: Icons.copy_all_outlined,
+                  onTap: _copyPrompt,
+                ),
+              ),
+            ],
+          ),
+          if (prompt != null && prompt.user.isNotEmpty) ...[
+            12.hGap,
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: GlassColors.surface(context),
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+              ),
+              child: SelectableText(
+                prompt.user,
+                style: TextStyle(
+                  fontSize: AppFontSizes.xs,
+                  height: 1.7,
+                  color: AppColors.textSecondary(context),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _actionButton(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: GlassColors.surface(context),
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          border: Border.all(color: GlassColors.borderSubtle(context)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon,
+                size: 15,
+                color: enabled ? AppColors.accent(context) : AppColors.textTertiary(context)),
+            6.wGap,
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: AppFontSizes.xs,
+                fontWeight: AppFontWeights.medium,
+                color: enabled ? AppColors.textPrimary(context) : AppColors.textTertiary(context),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cardTitle(BuildContext context, String text) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: AppFontSizes.base,
+        fontWeight: AppFontWeights.medium,
+        color: AppColors.textPrimary(context),
+      ),
+    );
+  }
+
+  Widget _kv(BuildContext context, String key, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 68,
+            child: Text(key, style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textTertiary(context))),
+          ),
+          Expanded(
+            child: Text(value,
+                style: TextStyle(fontSize: AppFontSizes.xs, color: AppColors.textSecondary(context))),
+          ),
+        ],
+      ),
+    );
+  }
+}
