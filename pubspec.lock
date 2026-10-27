@@ -226,7 +226,7 @@ packages:
     source: hosted
     version: "1.3.1"
   ffi:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
       name: ffi
       sha256: "16ed7b077ef01ad6170a3d0c57caa4a112a38d7a2ed5602e0aca9ca6f3d98da6"
@@ -401,7 +401,7 @@ packages:
     source: hosted
     version: "4.0.2"
   image:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: image
       sha256: "89ed75b2f8231fe676808c5564f9590d728024ded7ac782a7ed8474f1c95b72a"
@@ -536,14 +536,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.0"
-  llama_cpp_dart:
-    dependency: "direct main"
-    description:
-      name: llama_cpp_dart
-      sha256: "8bfc902fb6ef80ec0a2d06d5cdb499364271f9a6c6f11623ca9d7b4488fa7a98"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.2.2"
   logging:
     dependency: transitive
     description:
@@ -569,13 +561,13 @@ packages:
     source: hosted
     version: "0.8.0"
   meta:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
       name: meta
-      sha256: bdb68674043280c3428e9ec998512fb681678676b3c54e773629ffe74419f8c7
+      sha256: "7687075e408b093f36e6bbf6c91878cc0d4cd10f409506f7bc996f68220b9136"
       url: "https://pub.dev"
     source: hosted
-    version: "1.15.0"
+    version: "1.12.0"
   mime:
     dependency: transitive
     description:
@@ -853,14 +845,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.2"
-  typed_isolate:
-    dependency: transitive
-    description:
-      name: typed_isolate
-      sha256: e245b87368104f9da13a75268e0bce16a2a8d4c9a4194a5eb50bb569be680c65
-      url: "https://pub.dev"
-    source: hosted
-    version: "6.0.0"
   url_launcher_linux:
     dependency: transitive
     description:

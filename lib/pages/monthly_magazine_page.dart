@@ -14,12 +14,13 @@ import '../models/photo.dart';
 import '../models/quote.dart';
 import '../repository/local_repository.dart';
 import '../services/analytics_service.dart';
+import '../services/magazine_draft_service.dart';
 import '../services/monthly_recap_service.dart';
 import '../services/quote_service.dart';
 import '../services/scene_classifier_service.dart';
 import '../services/steps_service.dart';
 import '../theme.dart';
-import 'monthly/magazine_a4.dart';
+import 'monthly/magazine_export.dart';
 import 'monthly/magazine_editor.dart';
 import 'monthly/magazine_models.dart';
 import 'monthly/magazine_sheets.dart';
@@ -47,6 +48,9 @@ class MonthlyMagazinePage extends StatefulWidget {
   State<MonthlyMagazinePage> createState() => _MonthlyMagazinePageState();
 }
 
+/// 导出方式。单页用于「直接发」，多页用于「存档/打印」。
+enum _ExportKind { single, multi }
+
 class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
   late int _year;
   late int _month;
@@ -54,8 +58,11 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
   List<Photo> _monthPhotos = [];
   bool _loading = true;
   final Map<String, GlobalKey> _timelineExportKeys = {};
-  final GlobalKey _a4Key = GlobalKey();
-  bool _preparingA4 = false;
+  /// 导出模式：null = 没在导出。决定离屏挂哪套版式。
+  _ExportKind? _exportKind;
+
+  /// 导出页的 key，一页一个 RepaintBoundary。
+  List<GlobalKey> _exportPageKeys = const [];
   // 图片尺寸缓存：photoId -> (width, height)
   final Map<String, ImgSize> _imgSizeCache = {};
   // ─── 可编辑的杂志元数据 ───
@@ -97,7 +104,16 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
   /// 端侧 AI 叙事接入后复用同一份 MonthlyFacts 与同一处 UI 落点，便于直接对比。
   static const MonthlyRecapService _recapService = MonthlyRecapService();
 
-  MonthlyFacts get _monthFacts => _recapService.collectFacts(
+  /// 事实与关键词的缓存。
+  ///
+  /// `_keywords` 原来是个纯 getter，每次 build 都会重跑一遍
+  /// `collectFacts`（遍历照片 + 场景词查表，O(n)）。月刊页滚动、改模板都会
+  /// 触发 build，等于每帧白算一次。照片集合变了才需要重算，所以按
+  /// 「什么时候失效」来管，而不是按时间。
+  MonthlyFacts? _factsCache;
+  List<String>? _keywordsCache;
+
+  MonthlyFacts get _monthFacts => _factsCache ??= _recapService.collectFacts(
         _monthPhotos,
         year: _year,
         month: _month,
@@ -105,7 +121,30 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
         placeOf: SceneClassifier.readablePlace,
       );
 
-  List<String> get _keywords => _recapService.keywordsFor(_monthFacts);
+  List<String> get _keywords => _keywordsCache ??= _recapService.keywordsFor(_monthFacts);
+
+  /// 摘要来源，决定「照片变了要不要重写摘要」。
+  ///
+  /// - `rule`：规则生成。照片集合一变就必须重算 —— 否则会出现摘要写着
+  ///   「这个月的 1 张照片」、头部却写着「12 张照片」的当面对不上。
+  ///   这种自相矛盾比留白难看得多，而它恰恰是"看起来像 AI 编的"的来源。
+  /// - `user` / `quote`：用户手写或从文案库选的，一个字都不许动。
+  String _summarySource = 'user';
+
+  void _invalidateFacts() {
+    _factsCache = null;
+    _keywordsCache = null;
+  }
+
+  /// 规则版摘要跟着照片走：删了图、重排了，摘要里的数字自己就更新了。
+  void _refreshRuleSummary() {
+    if (_monthPhotos.isEmpty) return;
+    final text = _recapService
+        .build(_monthFacts, mood: _userMood, weather: _userWeather, steps: _healthSteps)
+        ?.text;
+    if (text == null || text == _summaryController.text) return;
+    _summaryController.text = text;
+  }
 
   /// 漏斗第 3 段：本页确实产出了内容（摘要/文案/手输/加页面）。
   /// 同一次进入只记一条，`source` 记最先发生的那个来源，方便回查是哪条路走通了。
@@ -120,7 +159,11 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
   }
 
   /// 一键生成月度摘要并写入「本月总结」。
-  void _generateRecap() {
+  ///
+  /// 原来是无条件覆盖：用户手写了一段、误点「智能摘要」就没了，而且自动保存
+  /// 会把覆盖后的内容写进 meta，撤不回来。现在只在两种情况下直接写：
+  /// 空的、或内容与将要生成的完全一致；其余情况先问一句。
+  Future<void> _generateRecap() async {
     if (_monthPhotos.isEmpty) return;
     final recap = _recapService.build(
       _monthFacts,
@@ -129,10 +172,119 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       steps: _healthSteps,
     );
     if (recap == null) return;
+
+    final current = _summaryController.text.trim();
+    if (current.isNotEmpty && current != recap.text.trim()) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('替换本月总结？'),
+          content: const Text('已经写过内容，生成新的摘要会覆盖掉。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('保留原文'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('替换'),
+            ),
+          ],
+        ),
+      );
+      if (replace != true) return;
+    }
+
     HapticFeedback.lightImpact();
-    setState(() => _summaryController.text = recap.text);
+    setState(() {
+      _summaryController.text = recap.text;
+      _summarySource = 'rule';
+    });
     _persistMeta();
     _logGenerated('rule');
+  }
+
+  /// 一键成刊：不用先导入，直接从本月全部照片里选片、排版、配图注。
+  ///
+  /// 这是「AI 叙事月刊」真正要的落点（方向 3.1）——点一下就该有一本册子，
+  /// 而不是让用户先一张张挑照片、再选模板。
+  ///
+  /// **草稿全程走规则，不调模型**：#10 实测端侧 1.7B 在 3.7GB 机器上
+  /// 吐 44 个字要 38 秒。把这种延迟挂在「一键」后面，等于把等待变成流失。
+  /// AI 若要参与，只能是出稿之后的「换一版文案」，不能让主路径阻塞。
+  Future<void> _oneTapDraft() async {
+    final monthPhotos = widget.repository
+        .getAllPhotos()
+        .where((p) => p.dateTime.year == _year && p.dateTime.month == _month)
+        .toList();
+    if (monthPhotos.isEmpty) {
+      _toast('$_month 月还没有照片，先去扫一次相册');
+      return;
+    }
+    if (_pages.isNotEmpty) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('重新成刊？'),
+          content: Text('当前 $_pages 页会被新草稿替换，已改过的文案和模板会丢失。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('保留现在的'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('重新生成'),
+            ),
+          ],
+        ),
+      );
+      if (replace != true) return;
+    }
+
+    final draft = const MagazineDraftService().build(
+      monthPhotos: monthPhotos,
+      year: _year,
+      month: _month,
+      sceneOf: SceneClassifier.instance.labelFor,
+      placeOf: SceneClassifier.readablePlace,
+    );
+    if (draft == null) {
+      _toast('没挑出可用的照片，换个时间范围试试');
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _pages = List<MagPage>.from(draft.pages);
+      _monthPhotos = List<Photo>.from(draft.photos);
+      _invalidateFacts();
+    });
+    // 总结只在空的时候补，绝不覆盖用户已经写过的内容
+    if (_summaryController.text.trim().isEmpty) {
+      final recap = _recapService.build(
+        _monthFacts,
+        mood: _userMood,
+        weather: _userWeather,
+        steps: _healthSteps,
+      );
+      if (recap != null) {
+        _summaryController.text = recap.text;
+        _summarySource = 'rule';
+      }
+    }
+    _persist();
+    _logGenerated('draft');
+    _toast('已排 ${draft.pages.length} 页：从 ${draft.candidateCount} 张里挑了 '
+        '${draft.photos.length} 张，覆盖 ${draft.dayCount} 天');
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   @override
@@ -181,6 +333,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       }
       _pages = validPages;
       _monthPhotos = photos;
+      _invalidateFacts();
       // 若有过滤掉的无效数据，回写修正存储
       if (_pages.length != pages.length) {
         _persist();
@@ -219,6 +372,8 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       if (savedSummary.isNotEmpty) {
         _summaryController.text = savedSummary;
       }
+      // 旧数据没有这个字段：一律当手写内容，宁可不覆盖
+      _summarySource = meta['summarySource'] as String? ?? 'user';
     }
     // 自动读取健康步数：用户未手动填写时才尝试（手动填写优先，避免覆盖用户输入）
     if (_healthSteps == 0) {
@@ -241,6 +396,10 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
   }
 
   void _persist() {
+    // 照片/页面集合的任何改动最终都会走到这里，顺手让事实缓存失效。
+    _invalidateFacts();
+    // 规则版摘要必须跟着照片重算，且要在 persistMeta 之前
+    if (_summarySource == 'rule') _refreshRuleSummary();
     widget.repository.saveMagazinePages(_year, _month, _pages.map((p) => p.toJson()).toList());
     _persistMeta();
   }
@@ -250,6 +409,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       'mood': _userMood,
       'weather': _userWeather,
       'summary': _summaryController.text,
+      'summarySource': _summarySource,
       'healthSteps': _healthSteps,
     });
   }
@@ -362,6 +522,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     final quote = await showQuotePicker(context, repository: widget.repository);
     if (quote == null) return;
     _summaryController.text = formatQuoteAsCaption(quote);
+    _summarySource = 'quote';
     _persistMeta();
     _logGenerated('quote');
   }
@@ -384,7 +545,8 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     showShareOptions(
       context,
       onSingleExport: _showSingleExportPicker,
-      onCaptureA4: _captureA4,
+      onSinglePage: () => _runExport(_ExportKind.single),
+      onMultiPage: () => _runExport(_ExportKind.multi),
     );
   }
 
@@ -392,14 +554,73 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     showSingleExportPicker(context, photos: _monthPhotos, onExport: _exportSinglePhoto);
   }
 
-  Future<void> _captureA4() {
-    return captureA4(
-      context: context,
-      a4Key: _a4Key,
+  /// 导出月刊。
+  ///
+  /// 两种版式共存，因为用途不同：
+  /// - **单页**（默认）：一页 A4 排完，适合直接发聊天/朋友圈；
+  /// - **多页**：封面 + 内页 + 统计页，适合存档和打印。
+  ///
+  /// 两者都不再往一页里硬塞 12 张小图 —— 那样每张只有邮票大，什么也看不清。
+  Future<void> _runExport(_ExportKind kind) async {
+    if (_exportKind != null) return; // 防重复点击
+    final count = kind == _ExportKind.single ? 1 : exportPageCount(_monthPhotos.length);
+    if (count == 0) return;
+    setState(() {
+      _exportKind = kind;
+      _exportPageKeys = List<GlobalKey>.generate(count, (_) => GlobalKey());
+    });
+    // 等离屏页挂上去，再交给截图逻辑
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      setState(() => _exportKind = null);
+      return;
+    }
+    final spec = _exportSpec();
+    if (kind == _ExportKind.single) {
+      await captureSinglePageExport(
+        context: context,
+        spec: spec,
+        pageKey: _exportPageKeys.first,
+        onPreparing: (_) {},
+      );
+    } else {
+      await captureMagazineExport(
+        context: context,
+        spec: spec,
+        pageKeys: _exportPageKeys,
+        onPreparing: (_) {},
+      );
+    }
+    if (mounted) {
+      setState(() {
+        _exportKind = null;
+        _exportPageKeys = const [];
+      });
+    }
+  }
+
+  MagazineExportSpec _exportSpec() {
+    final facts = _monthFacts;
+    // 没写过总结、或写的是规则版时，导出前按当前照片现算一句 —— 导出件不能
+    // 留白，更不能留一条和照片数对不上的旧摘要。
+    var summary = _summaryController.text.trim();
+    if (summary.isEmpty || _summarySource == 'rule') {
+      summary = _recapService
+              .build(facts, mood: _userMood, weather: _userWeather, steps: _healthSteps)
+              ?.text ??
+          summary;
+    }
+    return MagazineExportSpec(
       year: _year,
       month: _month,
       photos: _monthPhotos,
-      onPreparing: (v) => setState(() => _preparingA4 = v),
+      summary: summary,
+      keywords: _keywords,
+      dayCount: _travelDays,
+      nightCount: facts.nightCount,
+      favoriteCount: facts.favoriteCount,
+      sceneOf: SceneClassifier.instance.labelFor,
+      placeOf: SceneClassifier.readablePlace,
     );
   }
 
@@ -407,6 +628,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
     return confirmDeleteTimelinePhoto(context, photo, year: _year, month: _month, onConfirmed: () {
       setState(() {
         _monthPhotos.removeWhere((p) => p.id == photo.id);
+        _invalidateFacts();
         final idx = _pages.indexWhere((p) => p.photoIds.contains(photo.id));
         if (idx >= 0) {
           _pages.removeAt(idx);
@@ -553,6 +775,8 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
                 TextField(
                   controller: _summaryController,
                   onChanged: (value) {
+                    // 用户一动手就接管摘要所有权，此后照片变化不再自动改写
+                    _summarySource = 'user';
                     _persistMeta();
                     // 手输也算「产出」，但空串（清空动作）不算
                     if (value.trim().isNotEmpty) _logGenerated('manual');
@@ -644,7 +868,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       imgSizeCache: _imgSizeCache,
       exportKeys: _timelineExportKeys,
       randomCaption: _randomCaption,
-      onCaptureA4: _captureA4,
+      onExport: _showShareOptions,
       onEditCaption: _editCaption,
       onCreatePage: _createMagPage,
       onEditTemplate: (photo, page) {
@@ -652,7 +876,31 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       },
       onExportPhoto: _exportSinglePhoto,
       onDeletePhoto: _confirmDeletePhoto,
+      onDraft: _oneTapDraft,
     ));
+  }
+
+  /// 导出层：只在导出时挂载，避免离屏页面常驻拖慢常规滚动。
+  List<Widget> _buildExportLayer(BuildContext context) {
+    if (_exportKind == null || _exportPageKeys.isEmpty) return const [];
+    if (_exportKind == _ExportKind.single) {
+      return [
+        Positioned(
+          left: -9999,
+          top: -9999,
+          child: buildSingleExportPage(context, _exportSpec(), _exportPageKeys.first),
+        ),
+      ];
+    }
+    final pages = buildExportPages(context, _exportSpec(), _exportPageKeys);
+    return [
+      for (var i = 0; i < pages.length; i++)
+        Positioned(
+          left: -9999.0 - i * (kExportPageWidth + 40),
+          top: -9999,
+          child: pages[i],
+        ),
+    ];
   }
 
   // ─── Build ─────────────────────────────────────────────────────
@@ -677,7 +925,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
                     _buildMonthHeader(context),
                     24.hGap,
                     if (_monthPhotos.isEmpty)
-                      buildTimelineEmpty(context, onImport: _showImporter)
+                      buildTimelineEmpty(context, onImport: _showImporter, onDraft: _oneTapDraft)
                     else
                       _buildTimelineView(context),
                   ],
@@ -685,10 +933,9 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
                 ],
               ),
             ),
-            if (_preparingA4)
-              Positioned(left: -9999, top: -9999,
-                child: RepaintBoundary(key: _a4Key, child: buildA4Layout(context, _year, _month, _monthPhotos)),
-              ),
+            // 离屏渲染导出页：放在 -9999 位置上，虽然被 Stack 裁剪但仍然会 paint，
+            // RepaintBoundary 才有 layer 可截。多页沿 x 轴排开，避免互相覆盖。
+            ..._buildExportLayer(context),
           ],
         ),
       ),

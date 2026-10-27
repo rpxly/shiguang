@@ -5,8 +5,6 @@ import '../components/glass_card.dart';
 import '../components/staggered_fade_in.dart';
 import '../repository/local_repository.dart';
 import '../components/app_background.dart';
-import 'analytics_page.dart';
-import 'on_device_ai_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final LocalRepository repository;
@@ -142,73 +140,9 @@ class _SettingsPageState extends State<SettingsPage> {
             12.hGap,
             _toggleItem(context, '联网自动获取文案', '进入文案库时自动抓取热门句子', _autoFetchQuotes, (v) { setState(() => _autoFetchQuotes = v); widget.repository.setAutoFetchQuotes(v); }),
             12.hGap,
-            _linkRow(
-              context,
-              '端侧 AI 诊断',
-              '查看本机能否跑本地模型 / 预览提示词',
-              _openOnDeviceAi,
-            ),
-            12.hGap,
-            _linkRow(
-              context,
-              '使用数据（本地）',
-              '整理→月刊→生成→导出 四段漏斗的真实计数',
-              _openAnalytics,
-            ),
-            12.hGap,
             _infoRow(context, '应用版本', '1.0.0'),
           ],
         ),
-      ),
-    );
-  }
-
-  /// 端侧 AI 诊断页：POC 期间用来查看设备闸门、模型状态与提示词原文。
-  void _openOnDeviceAi() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (routeContext) => OnDeviceAiPage(
-          repository: widget.repository,
-          onBack: () => Navigator.of(routeContext).pop(),
-        ),
-      ),
-    );
-  }
-
-  /// 使用数据页：把本地埋点的漏斗摆出来，用于替换方向清单里的示例数据。
-  void _openAnalytics() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (routeContext) => AnalyticsPage(
-          onBack: () => Navigator.of(routeContext).pop(),
-        ),
-      ),
-    );
-  }
-
-  Widget _linkRow(
-    BuildContext context,
-    String title,
-    String subtitle,
-    VoidCallback onTap,
-  ) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(fontSize: AppFontSizes.base, color: context.textPrimary)),
-                4.hGap,
-                Text(subtitle, style: TextStyle(fontSize: AppFontSizes.xs, color: context.textTertiary)),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right, size: 18, color: context.textTertiary),
-        ],
       ),
     );
   }

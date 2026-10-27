@@ -413,8 +413,12 @@ void editCaption(BuildContext context,
 }
 
 // ─── 分享选项 ──────────────────────────────────────────────────
-void showShareOptions(BuildContext context,
-    {required VoidCallback onSingleExport, required VoidCallback onCaptureA4}) {
+void showShareOptions(
+  BuildContext context, {
+  required VoidCallback onSingleExport,
+  required VoidCallback onSinglePage,
+  required VoidCallback onMultiPage,
+}) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
@@ -426,17 +430,24 @@ void showShareOptions(BuildContext context,
       icon: Icons.ios_share_outlined,
       children: [
         _shareOption(
-          ctx, Icons.photo_library_outlined, '单张导出',
-          '逐张选择照片，用艺术模板导出',
-          AppGradients.accent,
-          () { Navigator.pop(ctx); onSingleExport(); },
+          ctx, Icons.dashboard_customize_outlined, '单页月刊',
+          '一页排完：大图 + 图注 + 落款，适合直接发',
+          AppGradients.ocean,
+          () { Navigator.pop(ctx); onSinglePage(); },
         ),
         10.hGap,
         _shareOption(
-          ctx, Icons.dashboard_customize_outlined, '全部导出为 A4 画册',
-          '自动排版所有照片为 A4 艺术极简风格',
-          AppGradients.ocean,
-          () { Navigator.pop(ctx); onCaptureA4(); },
+          ctx, Icons.auto_stories_outlined, '多页画册',
+          '封面 + 内页 + 统计页，适合存档和打印',
+          AppGradients.accent,
+          () { Navigator.pop(ctx); onMultiPage(); },
+        ),
+        10.hGap,
+        _shareOption(
+          ctx, Icons.photo_library_outlined, '单张导出',
+          '逐张选择照片，用艺术模板导出',
+          AppGradients.accentSoft,
+          () { Navigator.pop(ctx); onSingleExport(); },
         ),
       ],
     ),

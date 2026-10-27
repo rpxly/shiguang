@@ -14,6 +14,11 @@ class EmptyState extends StatelessWidget {
   final String? ctaLabel;
   final IconData? ctaIcon;
   final VoidCallback? onCta;
+
+  /// 次要动作（文字按钮形式，体积更小）：用于「主路径之外但常有」的选择。
+  final String? secondaryLabel;
+  final IconData? secondaryIcon;
+  final VoidCallback? onSecondary;
   final EmptyStateTone tone;
   final double iconSize;
 
@@ -25,6 +30,9 @@ class EmptyState extends StatelessWidget {
     this.ctaLabel,
     this.ctaIcon,
     this.onCta,
+    this.secondaryLabel,
+    this.secondaryIcon,
+    this.onSecondary,
     this.tone = EmptyStateTone.neutral,
     this.iconSize = 56,
   });
@@ -92,6 +100,17 @@ class EmptyState extends StatelessWidget {
                       ),
                     ),
                   ),
+                ),
+              ),
+            ],
+            if (secondaryLabel != null && onSecondary != null) ...[
+              AppSpacings.sm.hGap,
+              TextButton.icon(
+                onPressed: onSecondary,
+                icon: Icon(secondaryIcon ?? Icons.add, size: 16, color: context.textSecondary),
+                label: Text(
+                  secondaryLabel!,
+                  style: TextStyle(fontSize: AppFontSizes.sm, color: context.textSecondary),
                 ),
               ),
             ],

@@ -20,12 +20,16 @@ class MagazineTimelineHost {
   final Map<String, ImgSize> imgSizeCache;
   final Map<String, GlobalKey> exportKeys;
   final String Function(DateTime date) randomCaption;
-  final VoidCallback onCaptureA4;
+  /// 打开导出面板（单页 / 多页 / 单张）。
+  final VoidCallback onExport;
   final ValueChanged<MagPage> onEditCaption;
   final ValueChanged<Photo> onCreatePage;
   final void Function(Photo photo, MagPage? page) onEditTemplate;
   final Future<void> Function(Photo photo) onExportPhoto;
   final Future<void> Function(Photo photo) onDeletePhoto;
+
+  /// 一键成刊（不传则不显示入口）。
+  final VoidCallback? onDraft;
 
   const MagazineTimelineHost({
     required this.context,
@@ -36,12 +40,13 @@ class MagazineTimelineHost {
     required this.imgSizeCache,
     required this.exportKeys,
     required this.randomCaption,
-    required this.onCaptureA4,
+    required this.onExport,
     required this.onEditCaption,
     required this.onCreatePage,
     required this.onEditTemplate,
     required this.onExportPhoto,
     required this.onDeletePhoto,
+    this.onDraft,
   });
 }
 
@@ -60,6 +65,22 @@ Widget buildTimelineView(MagazineTimelineHost host) {
             Text('${host.year}年${host.month}月 时光线',
               style: TextStyle(fontSize: AppFontSizes.base, fontWeight: AppFontWeights.medium, color: AppColors.textPrimary(context))),
             const Spacer(),
+            if (host.onDraft != null) ...[
+              GestureDetector(
+                onTap: host.onDraft,
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.auto_awesome, size: 13, color: AppColors.accent(context)),
+                    3.wGap,
+                    Text('一键成刊',
+                        style: TextStyle(fontSize: 11, color: AppColors.accent(context))),
+                  ],
+                ),
+              ),
+              10.wGap,
+            ],
             Text('$count/12 张',
               style: TextStyle(fontSize: AppFontSizes.sm, color: AppColors.textTertiary(context))),
           ],
@@ -88,9 +109,9 @@ Widget buildTimelineView(MagazineTimelineHost host) {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacings.xl),
           child: AppButton.primary(
-            icon: Icons.dashboard_customize_outlined,
-            label: '导出全部为 A4 画册',
-            onPressed: host.onCaptureA4,
+            icon: Icons.ios_share_outlined,
+            label: '导出月刊',
+            onPressed: host.onExport,
           ),
         ),
       const SizedBox(height: AppSpacings.lg),
@@ -233,16 +254,25 @@ Widget _timelineOpBtn(BuildContext context, IconData icon, String label, VoidCal
 }
 
 // ─── 空态 ─────────────────────────────────────────────────────
-Widget buildTimelineEmpty(BuildContext context, {required VoidCallback onImport}) {
+Widget buildTimelineEmpty(
+  BuildContext context, {
+  required VoidCallback onImport,
+  VoidCallback? onDraft,
+}) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: AppSpacings.x6l),
     child: EmptyState(
-      icon: Icons.add_photo_alternate_outlined,
-      title: '本月时光线还没有照片',
-      subtitle: '点击右上角「导入照片」，最多12张',
-      ctaLabel: '导入照片',
-      ctaIcon: Icons.add_photo_alternate_outlined,
-      onCta: onImport,
+      icon: Icons.auto_awesome,
+      title: '这个月还没有成册',
+      subtitle: onDraft == null
+          ? '点击右上角「导入照片」，最多12张'
+          : '点一下，从本月照片里挑 9 张排成一册；也可以自己一张张导入',
+      ctaLabel: onDraft == null ? '导入照片' : '一键成刊',
+      ctaIcon: onDraft == null ? Icons.add_photo_alternate_outlined : Icons.auto_awesome,
+      onCta: onDraft ?? onImport,
+      secondaryLabel: onDraft == null ? null : '手动导入照片',
+      secondaryIcon: Icons.add_photo_alternate_outlined,
+      onSecondary: onDraft == null ? null : onImport,
     ),
   );
 }
