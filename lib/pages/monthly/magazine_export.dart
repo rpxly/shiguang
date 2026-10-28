@@ -748,17 +748,23 @@ class _SinglePage extends StatelessWidget {
                         box.maxWidth,
                         box.maxHeight - _captionSpace,
                       );
-                      return Center(
+                      // 顶部对齐：图片贴住摘要下方，多余空间全部沉到图版底部。
+                      // 居中的话会在标题区与图片之间裂开一条空带，像排版没做完。
+                      return Align(
+                        alignment: Alignment.topCenter,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             for (var i = 0; i < rows.length; i++) ...[
                               if (i > 0) const SizedBox(height: _rowGap),
                               _row(rows[i]),
                             ],
                             const SizedBox(height: 12),
-                            _captionLine(picked.first),
+                            // 图注宽度绑在图版上，时间戳才会顶齐图版的右边缘
+                            SizedBox(
+                              width: _plateWidth(rows.first),
+                              child: _captionLine(picked.first),
+                            ),
                           ],
                         ),
                       );
@@ -890,9 +896,17 @@ class _SinglePage extends StatelessWidget {
     );
   }
 
+  /// 一行图的实际总宽，图注靠它对齐到图版右边缘。
+  double _plateWidth(_PlateRow row) {
+    var width = _hGap * (row.photos.length - 1);
+    for (final photo in row.photos) {
+      width += row.height * _ratio(photo);
+    }
+    return width;
+  }
+
   /// 一行图：等高、宽度按各自比例，整行铺满版心。
-  Widget _row(_PlateRow row) {
-    return Row(
+  Widget _row(_PlateRow row) {    return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
