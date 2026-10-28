@@ -593,12 +593,14 @@ class PlateRowPlan {
   final double height;
 }
 
-/// 图版排版：给定各图宽高比与可用区域，决定分成几行、每行多高。
+/// 图版排版：给定各图宽高比与可用区域，决定分成几行、每行几张、每行多高。
 ///
 /// 这是"不裁图"的代价 —— 既然不能靠裁切把任意照片塞进固定格子，就只能反过来
-/// 让格子跟着照片比例走，再由可用高度反推该排几行：
-/// - 6 张 3:4 竖图 → 2 行 × 3 张，每张约 216×288
-/// - 6 张 3:2 横图 → 3 行 × 2 张，每张约 331×221
+/// 让格子跟着照片比例走，再由可用高度反推该排几行。
+///
+/// 行的"张数"允许在均分值 ±1 内浮动（如 12 张 → 3/4/5 而不是死板的 4/4/4），
+/// 张数不同的行行高必然不同，版面因此有杂志式的节奏，而不是相册网格。
+/// 所有候选模式按「错落度 × 版面利用率」打分，平局时大图行放上面。
 ///
 /// 不变量（单测覆盖）：行内总宽恰好等于 [width]（整体缩放后成比例收窄）、
 /// 总高不超过 [height]、每行高度不低于 [minRowH]。
@@ -608,68 +610,104 @@ List<PlateRowPlan> planPlateRows(
   double height, {
   double hGap = 18,
   double rowGap = 18,
-  double minRowH = 96,
+  double minRowH = 110,
 }) {
   if (ratios.isEmpty || width <= 0 || height <= 0) return const [];
 
-  double rowHeight(List<int> group) {
-    var sum = 0.0;
-    for (final i in group) {
-      sum += ratios[i];
-    }
-    if (sum <= 0) return 0;
-    return (width - hGap * (group.length - 1)) / sum;
-  }
-
-  List<List<int>> splitEven(int rows) {
-    final base = ratios.length ~/ rows;
-    final rem = ratios.length % rows;
-    if (base == 0) return const [];
+  // 枚举"每行张数"模式：行数 k，每行张数在均分值 ±1 内浮动，总和必须等于 n。
+  // 比如 n=12、k=3 会得到 [3,4,5] / [4,3,5] / [4,4,4] / [5,3,4] ……
+  // 张数不同的行，行高必然不同 —— 这就是错落的来源，且仍然满版、不裁。
+  List<List<int>> patterns(int n, int rows) {
+    final base = n ~/ rows;
+    final lo = base > 1 ? base - 1 : 1;
     final out = <List<int>>[];
-    var cursor = 0;
-    for (var r = 0; r < rows; r++) {
-      final k = base + (r < rem ? 1 : 0);
-      out.add([for (var i = cursor; i < cursor + k; i++) i]);
-      cursor += k;
+    void rec(int remain, int left, List<int> cur) {
+      if (left == 0) {
+        if (remain == 0) out.add(List.of(cur));
+        return;
+      }
+      for (var k = lo; k <= base + 1; k++) {
+        if (k > remain - (left - 1)) continue; // 后面的行至少各留 1 张
+        cur.add(k);
+        rec(remain - k, left - 1, cur);
+        cur.removeLast();
+      }
     }
+    rec(n, rows, []);
     return out;
   }
 
-  // 「填满版面」和「不超出版面」在竖图/横图上会打架：
-  // 6 张横图排 2 行只占一半高度，排 3 行会超出 5%。所以不追求严格不超，
-  // 而是允许小幅溢出（整体等比缩小补回来），用「版面的利用率」打分。
-  const double maxFill = 1.08; // 允许溢出 8%
-  const double minFill = 0.6; // 低于 60% 说明这一版太空，宁可少排一行
-
   List<PlateRowPlan>? best;
   var bestScore = 0.0;
-  var bestTotal = 0.0;
+  var bestFill = 0.0;
+  var bestFirstRow = 1 << 30;
 
-  for (var rows = 1; rows <= ratios.length; rows++) {
-    final groups = splitEven(rows);
-    if (groups.length != rows) continue;
-    final plans = <PlateRowPlan>[];
-    var total = rowGap * (rows - 1);
-    var usable = true;
-    for (final group in groups) {
-      final rh = rowHeight(group);
-      if (rh < minRowH) {
-        usable = false;
-        break;
+  final maxRows = ratios.length < 6 ? ratios.length : 6;
+  for (var rows = 1; rows <= maxRows; rows++) {
+    for (final pattern in patterns(ratios.length, rows)) {
+      final plans = <PlateRowPlan>[];
+      var cursor = 0;
+      var total = rowGap * (rows - 1);
+      var heights = <double>[];
+      var usable = true;
+      for (var r = 0; r < rows; r++) {
+        final count = pattern[r];
+        var sum = 0.0;
+        for (var i = cursor; i < cursor + count; i++) {
+          sum += ratios[i];
+        }
+        if (sum <= 0) {
+          usable = false;
+          break;
+        }
+        final rh = (width - hGap * (count - 1)) / sum;
+        if (rh < minRowH) {
+          usable = false;
+          break;
+        }
+        heights.add(rh);
+        plans.add(PlateRowPlan(
+          [for (var i = cursor; i < cursor + count; i++) i],
+          rh,
+        ));
+        cursor += count;
+        total += rh;
       }
-      plans.add(PlateRowPlan(group, rh));
-      total += rh;
-    }
-    if (!usable) continue;
+      if (!usable) continue;
 
-    final fill = total / height;
-    if (fill > maxFill || fill < minFill) continue;
-    // 越接近 1 越好；超过 1 不再加分（反正要缩回来）
-    final score = fill < 1.0 ? fill : 1.0;
-    if (score > bestScore) {
-      bestScore = score;
-      best = plans;
-      bestTotal = total;
+      final fill = total / height;
+      // 太空（<60%）说明这版松散，太满（>8%）要整体缩太多
+      if (fill > 1.08 || fill < 0.6) continue;
+
+      // 错落度 = 行高的变异系数。均匀分模式（如 4/4/4）是 0，
+      // 3/4/5 这种行高落差大的得分高 —— 但它仍满版，只是节奏不同。
+      final mean = heights.fold(0.0, (a, b) => a + b) / rows;
+      var variance = 0.0;
+      for (final h in heights) {
+        variance += (h - mean) * (h - mean);
+      }
+      final spread = mean > 0 ? math.sqrt(variance / rows) / mean : 0.0;
+
+      // 大图在上：人眼从左上进场，开页第一排最大才立得住。
+      // 只给 6% 的加权，不让它压过"更满、更错落"的硬指标。
+      var descending = true;
+      for (var i = 1; i < heights.length; i++) {
+        if (heights[i] > heights[i - 1] + 0.5) descending = false;
+      }
+
+      final score = spread * (fill < 1.0 ? fill : 1.0) * (descending ? 1.06 : 1.0);
+      // 平局（如 3/4/5 与 5/4/3 行高集合相同）时，大图行放上面 —— 杂志开页惯例。
+      // 注意 bestScore 可能为 0（均匀分模式错落度就是 0），比较必须兼容 0 分平局。
+      final better = best == null ||
+          score > bestScore * (1 + 1e-6) ||
+          ((score - bestScore).abs() <= bestScore * 1e-6 + 1e-12 &&
+              pattern.first < bestFirstRow);
+      if (better) {
+        bestScore = score;
+        bestFill = fill;
+        best = plans;
+        bestFirstRow = pattern.first;
+      }
     }
   }
 
@@ -683,11 +721,9 @@ List<PlateRowPlan> planPlateRows(
   }
 
   // 整体等比缩小：所有行缩同一系数，行与行仍然左右对齐，只是略微内收。
-  // 缩小只作用于图片高度，行间距不动，所以要把间距先从总量里扣掉再算系数。
+  // 缩小只作用于图片高度，行间距不动，所以要把间距先扣掉再算系数。
   final gaps = rowGap * (best.length - 1);
-  final scale = bestTotal > height
-      ? (height - gaps) / (bestTotal - gaps)
-      : 1.0;
+  final scale = bestFill > 1.0 ? (height - gaps) / (bestFill * height - gaps) : 1.0;
   return [
     for (final row in best) PlateRowPlan(row.indices, row.height * scale),
   ];
@@ -720,8 +756,8 @@ class _SinglePage extends StatelessWidget {
   static const double _hGap = 18;
   static const double _rowGap = 18;
 
-  /// 行高下限。低于这个值就不像照片、像色块了，宁可少排一行。
-  static const double _minRowH = 96;
+  /// 行高下限。低于这个值就不像照片、像一条邮票带，宁可换一种分行方式。
+  static const double _minRowH = 110;
 
   @override
   Widget build(BuildContext context) {

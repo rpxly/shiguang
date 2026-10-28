@@ -31,29 +31,51 @@ double _totalHeight(List<PlateRowPlan> rows) {
 
 void main() {
   group('planPlateRows — 不裁图排版', () {
-    test('3:4 竖图 ×6 排成 2 行 × 3 张，宽度正好铺满', () {
+    test('3:4 竖图 ×6 → 2 行 [2,4]：大图开场 + 一排小图，整行铺满', () {
       final ratios = List<double>.filled(6, 0.75);
       final rows = planPlateRows(ratios, _w, _h);
 
       expect(rows.length, 2);
-      expect(rows.every((r) => r.indices.length == 3), isTrue);
+      expect(rows[0].indices.length, 2);
+      expect(rows[1].indices.length, 4);
+      // 大图行在上（平局时首行张数少者优先）
+      expect(rows[0].height, greaterThan(rows[1].height));
       for (final row in rows) {
-        expect(_rowWidth(ratios, row.indices, row.height), closeTo(_w, 0.5));
+        expect(_rowWidth(ratios, row.indices, row.height), lessThanOrEqualTo(_w + 0.5));
+        expect(_rowWidth(ratios, row.indices, row.height), greaterThan(_w * 0.97));
       }
+      expect(_totalHeight(rows), lessThanOrEqualTo(_h + 0.5));
     });
 
-    test('3:2 横图 ×6 排成 3 行 × 2 张，总高不超版面', () {
+    test('12 张 3:4 竖图 → 3 行 3/4/5 张错落，行高依次递减', () {
+      final ratios = List<double>.filled(12, 0.75);
+      final rows = planPlateRows(ratios, _w, _h);
+
+      expect(rows.map((r) => r.indices.length).toList(), [3, 4, 5]);
+      final heights = rows.map((r) => r.height).toList();
+      // 错落：行与行行高有明显落差，且大图行在上
+      expect(heights[0], greaterThan(heights[1]));
+      expect(heights[1], greaterThan(heights[2]));
+      for (final row in rows) {
+        expect(_rowWidth(ratios, row.indices, row.height), lessThanOrEqualTo(_w + 0.5));
+        expect(_rowWidth(ratios, row.indices, row.height), greaterThan(_w * 0.9));
+      }
+      expect(_totalHeight(rows), lessThanOrEqualTo(_h + 0.5));
+      // 所有下标不重不漏
+      final seen = <int>{};
+      for (final row in rows) {
+        seen.addAll(row.indices);
+      }
+      expect(seen.length, 12);
+    });
+
+    test('错落是择优而不是硬凑：6 张 3:2 横图没有更好的错落时保持均匀', () {
       final ratios = List<double>.filled(6, 1.5);
       final rows = planPlateRows(ratios, _w, _h);
 
+      // 横图 6 张唯一可行的满版模式就是 3×2，错落模式都爆版面
       expect(rows.length, 3);
       expect(rows.every((r) => r.indices.length == 2), isTrue);
-      expect(_totalHeight(rows), lessThanOrEqualTo(_h + 0.5));
-      for (final row in rows) {
-        // 允许为了塞进版面而整体内收，但不能塌成窄条
-        expect(_rowWidth(ratios, row.indices, row.height), lessThanOrEqualTo(_w + 0.5));
-        expect(_rowWidth(ratios, row.indices, row.height), greaterThan(_w * 0.85));
-      }
     });
 
     test('单张竖图：高度封顶到版面，不溢出（宽度自然收窄）', () {
