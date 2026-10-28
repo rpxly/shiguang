@@ -698,8 +698,12 @@ class _SinglePage extends StatelessWidget {
 
   final MagazineExportSpec spec;
 
-  /// 一页最多 6 张。再多，每张就只剩邮票大 —— 用户要看的是照片，不是缩略图墙。
-  static const int _maxTiles = 6;
+  /// 一页最多 12 张 —— 用户要的是"整月都在这一页上"。
+  ///
+  /// 不裁切 + 按比例排版下，12 张 3:4 竖图自动排成 3 行 × 4 列，
+  /// 每张约 156×209pt，正好铺满图版区。再多（整月 30 张那种）仍按时间
+  /// 均匀取样到 12 张，页脚写明「精选 n / m 张」。
+  static const int _maxTiles = 12;
 
   // 不对称页边距：左宽右窄、下留白多，是纸刊内页的常规做法。
   static const double _padL = 64;
@@ -997,8 +1001,8 @@ class _SinglePage extends StatelessWidget {
     );
   }
 
-  int _decodeWidthOf(Photo photo) =>
-      photo.id == spec.photos.first.id ? _coverDecodeWidth : _contentDecodeWidth;
+  int _decodeWidthOf(Photo photo) => singlePageTileDecodeWidth(
+      spec.photos.length, photo.id == spec.photos.first.id);
 
   double _ratio(Photo photo) {
     final r = spec.ratioOf?.call(photo.path);
@@ -1162,11 +1166,21 @@ Future<void> _runCapture({
   }
 }
 
-/// 单页版：只有 hero 用宽解码，其余小图用内容宽度。
+/// 单页版解码宽度：按"页上有多少张"分档。
+///
+/// 张数越多每张越小，解码宽给大了纯浪费内存 —— 12 张 × 1400 宽要 120MB+，
+/// 800 宽只要 40MB，而实际显示宽度 3 倍像素比下也就 470–1000px。
+int singlePageTileDecodeWidth(int total, bool isFirst) {
+  if (total <= 4) return isFirst ? _coverDecodeWidth : _contentDecodeWidth;
+  if (total <= 6) return 1000;
+  return 800;
+}
+
 Map<String, int> _singlePageDecodeWidths(MagazineExportSpec spec) {
   final widths = <String, int>{};
-  for (var i = 0; i < spec.photos.length; i++) {
-    widths[spec.photos[i].id] = i == 0 ? _coverDecodeWidth : _contentDecodeWidth;
+  final total = spec.photos.length;
+  for (var i = 0; i < total; i++) {
+    widths[spec.photos[i].id] = singlePageTileDecodeWidth(total, i == 0);
   }
   return widths;
 }
