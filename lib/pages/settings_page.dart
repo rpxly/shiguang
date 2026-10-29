@@ -6,6 +6,7 @@ import '../components/glass_card.dart';
 import '../components/staggered_fade_in.dart';
 import '../repository/local_repository.dart';
 import '../components/app_background.dart';
+import 'website_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final LocalRepository repository;
@@ -142,6 +143,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _toggleItem(context, '联网自动获取文案', '进入文案库时自动抓取热门句子', _autoFetchQuotes, (v) { setState(() => _autoFetchQuotes = v); widget.repository.setAutoFetchQuotes(v); }),
             12.hGap,
             _infoRow(context, '应用版本', kAppVersion),
+            12.hGap,
+            _linkRow(context, '官方网站', 'rpxly.github.io/shiguang'),
           ],
         ),
       ),
@@ -173,6 +176,32 @@ class _SettingsPageState extends State<SettingsPage> {
         Text(label, style: TextStyle(fontSize: AppFontSizes.base, color: context.textPrimary)),
         Text(value, style: TextStyle(fontSize: AppFontSizes.sm, color: context.textTertiary)),
       ],
+    );
+  }
+
+  Widget _linkRow(BuildContext context, String label, String value) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => WebsitePage(onBack: () => Navigator.of(context).pop()),
+        ));
+      },
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(fontSize: AppFontSizes.base, color: context.textPrimary)),
+                4.hGap,
+                Text(value, style: TextStyle(fontSize: AppFontSizes.xs, color: context.textTertiary)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, size: 20, color: context.textTertiary),
+        ],
+      ),
     );
   }
 

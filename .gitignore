@@ -73,5 +73,5 @@ app.*.map.json
 /t_verify/
 /t_scan_done.png
 
-# 官网交付 APK 例外：docs/apks 下的安装包随站点入库（<100MB）
-!/docs/apks/*.apk
+# 官网交付 APK 例外：apks/ 下的安装包随站点入库（<100MB）
+!/apks/*.apk
