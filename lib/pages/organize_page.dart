@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../components/bottom_blur_bar.dart';
 import '../components/empty_state.dart';
 import '../components/glass_card.dart';
+import '../components/glass_icon_button.dart';
 import '../components/shimmer_skeleton.dart';
 import '../components/app_dialog.dart';
 import '../components/app_button.dart';
@@ -201,22 +202,11 @@ class _OrganizePageState extends State<OrganizePage> with SingleTickerProviderSt
                 style: TextStyle(fontSize: AppFontSizes.xs, color: context.textTertiary)),
             ],
           ),
-          GestureDetector(
+          GlassIconButton(
+            icon: Icons.more_horiz,
             onTap: () => _showMoreMenu(),
-            behavior: HitTestBehavior.opaque,
-            child: Semantics(
-              button: true,
-              label: '更多操作',
-              child: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: GlassColors.bg(context),
-                  borderRadius: BorderRadius.circular(AppRadii.md),
-                  border: Border.all(color: GlassColors.borderSubtle(context)),
-                ),
-                child: Icon(Icons.more_horiz, size: 18, color: context.textSecondary),
-              ),
-            ),
+            tooltip: '更多操作',
+            iconSize: 18,
           ),
         ],
       ),
@@ -311,7 +301,7 @@ class _OrganizePageState extends State<OrganizePage> with SingleTickerProviderSt
       subtitle: '滑动与按钮操作说明',
       children: [
         Text(
-          '上滑删除照片\n下滑精选照片\n再下滑标记保留\n\n点击底部按钮也可快速操作',
+          '上滑删除照片\n下滑标记保留\n左滑设为精选\n右滑回看上一张\n\n点击底部按钮也可快速操作',
           style: TextStyle(fontSize: AppFontSizes.sm, color: context.textSecondary, height: AppLineHeights.relaxed),
         ),
       ],

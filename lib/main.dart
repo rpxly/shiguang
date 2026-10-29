@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'theme.dart';
 import 'components/app_background.dart';
+import 'components/glass_top_scrim.dart';
 import 'components/tab_bar.dart';
 import 'pages/home_page.dart';
 import 'pages/organize_page.dart';
@@ -465,23 +466,38 @@ class _MainScreenState extends State<MainScreen> {
       value: context.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: SafeArea(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              for (final tab in TabType.values)
-                if (_instantiatedTabs.contains(tab))
-                  Offstage(
-                    offstage: tab != _currentTab,
-                    child: TickerMode(
-                      enabled: tab == _currentTab,
-                      child: _buildTabPage(tab, db),
-                    ),
-                  )
-                else
-                  const SizedBox.shrink(),
-            ],
-          ),
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            SafeArea(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  for (final tab in TabType.values)
+                    if (_instantiatedTabs.contains(tab))
+                      Offstage(
+                        offstage: tab != _currentTab,
+                        child: TickerMode(
+                          enabled: tab == _currentTab,
+                          child: _TabReveal(
+                            active: tab == _currentTab,
+                            child: _buildTabPage(tab, db),
+                          ),
+                        ),
+                      )
+                    else
+                      const SizedBox.shrink(),
+                ],
+              ),
+            ),
+            // 状态栏玻璃衬底：盖在 SafeArea 之上、内容之下滚动的层
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: GlassTopScrim(),
+            ),
+          ],
         ),
         bottomNavigationBar: TabBarWidget(currentTab: _currentTab, onTabChanged: _onTabChanged),
       ),
@@ -495,6 +511,62 @@ class PageTransition extends StatefulWidget {
 
   @override
   State<PageTransition> createState() => _PageTransitionState();
+}
+
+/// Tab 切换时的内容过渡：每次变为激活 Tab 时重放一次
+/// 淡入 + 轻微上移。页面本身由 Offstage 保活，状态不丢。
+class _TabReveal extends StatefulWidget {
+  final bool active;
+  final Widget child;
+
+  const _TabReveal({required this.active, required this.child});
+
+  @override
+  State<_TabReveal> createState() => _TabRevealState();
+}
+
+class _TabRevealState extends State<_TabReveal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: AppTransitions.normal,
+    );
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.015),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    if (widget.active) _controller.value = 1;
+  }
+
+  @override
+  void didUpdateWidget(_TabReveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(position: _slide, child: widget.child),
+    );
+  }
 }
 
 class _PageTransitionState extends State<PageTransition>

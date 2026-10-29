@@ -10,6 +10,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../components/glass_card.dart';
+import '../components/glass_icon_button.dart';
+import '../components/glass_top_scrim.dart';
 import '../models/photo.dart';
 import '../models/quote.dart';
 import '../repository/local_repository.dart';
@@ -226,7 +228,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('重新成刊？'),
-          content: Text('当前 $_pages 页会被新草稿替换，已改过的文案和模板会丢失。'),
+          content: Text('当前 ${_pages.length} 页会被新草稿替换，已改过的文案和模板会丢失。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -937,6 +939,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
       backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Stack(
+          fit: StackFit.expand,
           children: [
             SingleChildScrollView(
               child: Column(
@@ -962,6 +965,13 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
             // 离屏渲染导出页：放在 -9999 位置上，虽然被 Stack 裁剪但仍然会 paint，
             // RepaintBoundary 才有 layer 可截。多页沿 x 轴排开，避免互相覆盖。
             ..._buildExportLayer(context),
+            // 状态栏玻璃衬底（盖在内容之上、不拦触摸）
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: GlassTopScrim(),
+            ),
           ],
         ),
       ),
@@ -985,23 +995,7 @@ class _MonthlyMagazinePageState extends State<MonthlyMagazinePage> {
   }
 
   Widget _iconBtn(BuildContext context, IconData icon, VoidCallback onTap, {String? tooltip}) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Semantics(
-        button: true,
-        label: tooltip,
-        child: Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(
-            color: GlassColors.bg(context),
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(color: GlassColors.borderSubtle(context), width: 1),
-          ),
-          child: Icon(icon, size: 18, color: AppColors.textTertiary(context)),
-        ),
-      ),
-    );
+    return GlassIconButton(icon: icon, onTap: onTap, tooltip: tooltip);
   }
 
   Widget _buildMonthNav(BuildContext context) {

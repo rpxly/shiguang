@@ -425,7 +425,31 @@ class PhotoScannerService {
         } catch (_) {}
       }
 
-      if (filePath == null) return null;
+      if (filePath == null) {
+        // 兜底：云端未下载 / 系统清理过原文件的图片，entity.file 可能拿不到，
+        // 改用 MediaStore 的 relativePath + title 拼出物理路径，避免照片被静默丢弃。
+        final relative = entity.relativePath;
+        final title = entity.title;
+        if (relative != null &&
+            relative.isNotEmpty &&
+            title != null &&
+            title.isNotEmpty) {
+          var dir = relative.startsWith('/') ? relative : '/$relative';
+          if (!dir.endsWith('/')) dir = '$dir/';
+          final candidate = '/storage/emulated/0$dir$title';
+          debugPrint(
+            '[Scanner] file 为空，使用 MediaStore 路径兜底: id=${entity.id}, path=$candidate',
+          );
+          filePath = candidate;
+        }
+      }
+
+      if (filePath == null) {
+        debugPrint(
+          '[Scanner] 无法获取文件路径，已跳过: id=${entity.id}, title=${entity.title}',
+        );
+        return null;
+      }
 
       int fileSize = 0;
       try {

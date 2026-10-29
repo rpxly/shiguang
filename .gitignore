@@ -67,3 +67,11 @@ app.*.map.json
 .workbuddy/*.png
 .workbuddy/t10_*.txt
 拾光-1.0.0-release-1027.apk
+
+# ── 官网与 GitHub Pages（2026-10-29）────────────────────────
+# 一次性真机验证截图，不入库
+/t_verify/
+/t_scan_done.png
+
+# 官网交付 APK 例外：docs/apks 下的安装包随站点入库（<100MB）
+!/docs/apks/*.apk

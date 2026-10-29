@@ -91,7 +91,7 @@ class GlassCard extends StatelessWidget {
     // 而这会让**每一张** GlassCard 在 debug 下 paint 失败（release 因 assert
     // 被剥离才没暴露）。画笔版本既能保留圆角裁切效果，又不触发断言。
     final edged = CustomPaint(
-      foregroundPainter: _GlassHairlinePainter(
+      foregroundPainter: GlassHairlinePainter(
         radius: borderRadius,
         // 顶部一道纯白内高光：玻璃"厚度"的来源
         topColor: isGradient ? Colors.white.withOpacity(0.35) : spec.topHighlight,
@@ -144,12 +144,12 @@ class GlassCard extends StatelessWidget {
 /// 边框，一旦同时给 `borderRadius`，Flutter 会在 paint 阶段断言失败
 /// （`A borderRadius can only be given on borders with uniform colors`）。
 /// 用画笔在圆角矩形内裁切后画两条 1px 横线，视觉与原实现一致且不触发断言。
-class _GlassHairlinePainter extends CustomPainter {
+class GlassHairlinePainter extends CustomPainter {
   final double radius;
   final Color topColor;
   final Color bottomColor;
 
-  const _GlassHairlinePainter({
+  const GlassHairlinePainter({
     required this.radius,
     required this.topColor,
     required this.bottomColor,
@@ -177,7 +177,7 @@ class _GlassHairlinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_GlassHairlinePainter oldDelegate) =>
+  bool shouldRepaint(GlassHairlinePainter oldDelegate) =>
       oldDelegate.radius != radius ||
       oldDelegate.topColor != topColor ||
       oldDelegate.bottomColor != bottomColor;

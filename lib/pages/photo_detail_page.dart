@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme.dart';
 import '../components/glass_card.dart';
+import '../components/glass_icon_button.dart';
 import '../components/loading_overlay.dart';
 import '../components/bottom_blur_bar.dart';
 import '../components/app_button.dart';
@@ -150,15 +152,32 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
             slivers: [
               SliverAppBar(
                 pinned: true,
-                backgroundColor: GlassColors.bg(context),
+                backgroundColor: Colors.transparent,
                 elevation: 0,
-                leading: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: AppButton.circle(
+                // 液态玻璃顶栏：内容滚动到顶栏下方时获得真模糊过渡，
+                // 填充自上而下渐隐，与状态栏 Scrim 同一套玻璃语言
+                flexibleSpace: ClipRect(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            GlassColors.bgMedium(context),
+                            GlassColors.bgMedium(context).withOpacity(0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                leading: Center(
+                  child: GlassIconButton(
                     icon: Icons.close,
-                    onPressed: widget.onBack,
-                    variant: AppButtonVariant.secondary,
-                    size: AppButtonSize.sm,
+                    onTap: widget.onBack,
+                    tooltip: '关闭',
                   ),
                 ),
               ),
@@ -226,40 +245,61 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
   }
 
   Widget _buildBottomBar(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 12, top: 12, left: 20, right: 20),
-      decoration: BoxDecoration(
-        color: GlassColors.bgHeavy(context),
-        border: Border(top: BorderSide(color: GlassColors.border(context), width: 0.5)),
-      ),
-      child: Row(
-            children: [
-              Expanded(
-                child: Text('${widget.photo.dateTime.year}/${widget.photo.dateTime.month}/${widget.photo.dateTime.day}',
-                  style: TextStyle(fontSize: AppFontSizes.sm, color: context.textTertiary)),
+    // 融合版：全宽厚玻璃操作栏（bgHeavy 稳定可读）+ 顶部镜面发丝线
+    final spec = GlassSpec.resolve(context, GlassTier.thick);
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: spec.blur, sigmaY: spec.blur),
+        child: CustomPaint(
+          foregroundPainter: GlassHairlinePainter(
+            radius: 0,
+            topColor: spec.topHighlight,
+            bottomColor: Colors.transparent,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: spec.fill,
+              border: Border(
+                top: BorderSide(color: spec.border, width: 0.5),
               ),
-              GestureDetector(
-                onTap: _showDeleteConfirmation,
-                behavior: HitTestBehavior.opaque,
-                child: Semantics(
-                  button: true,
-                  label: '删除照片',
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(color: context.error.withOpacity(0.1), borderRadius: BorderRadius.circular(AppRadii.full)),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.delete_outline, size: 16, color: context.error),
-                        4.wGap,
-                        Text('删除', style: TextStyle(fontSize: AppFontSizes.sm, fontWeight: AppFontWeights.medium, color: context.error)),
-                      ],
+            ),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).padding.bottom + 12,
+              top: 12,
+              left: 20,
+              right: 20,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text('${widget.photo.dateTime.year}/${widget.photo.dateTime.month}/${widget.photo.dateTime.day}',
+                    style: TextStyle(fontSize: AppFontSizes.sm, color: context.textTertiary)),
+                ),
+                GestureDetector(
+                  onTap: _showDeleteConfirmation,
+                  behavior: HitTestBehavior.opaque,
+                  child: Semantics(
+                    button: true,
+                    label: '删除照片',
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(color: context.error.withOpacity(0.1), borderRadius: BorderRadius.circular(AppRadii.full)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.delete_outline, size: 16, color: context.error),
+                          4.wGap,
+                          Text('删除', style: TextStyle(fontSize: AppFontSizes.sm, fontWeight: AppFontWeights.medium, color: context.error)),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
+        ),
+      ),
     );
   }
 
@@ -279,7 +319,7 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
             // EXIF 里只有原始经纬度时不再当「地点」展示，避免出现 31.2304, 121.4737
             _metadataRow(context, Icons.place_outlined, '拍摄地点', place ?? '未记录'),
             Container(height: 1, color: context.divider),
-            _metadataRow(context, Icons.storage_outlined, '文件大小', '${widget.photo.fileSize} KB'),
+            _metadataRow(context, Icons.storage_outlined, '文件大小', _formatFileSize(widget.photo.fileSize)),
             Container(height: 1, color: context.divider),
             _metadataRow(context, Icons.collections_outlined, '同月份照片', '${_allPhotos.where((p) => p.dateTime.month == widget.photo.dateTime.month && p.dateTime.year == widget.photo.dateTime.year).length} 张'),
           ],
@@ -354,6 +394,21 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
 
   String _formatDate(DateTime date) {
     return '${date.year}/${date.month}/${date.day} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    const units = ['KB', 'MB', 'GB'];
+    double value = bytes / 1024;
+    for (final unit in units) {
+      if (value < 1024) {
+        // 小于 10 MB 保留 1 位小数，否则取整
+        final formatted = value < 10 ? value.toStringAsFixed(1) : value.toStringAsFixed(0);
+        return '$formatted $unit';
+      }
+      value /= 1024;
+    }
+    return '${value.toStringAsFixed(1)} TB';
   }
 }
 

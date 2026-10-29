@@ -44,44 +44,6 @@ class ArchivePaths {
   static String albumPath(String albumName) => toRelativePath(albumDir(albumName));
 }
 
-/// 允许移动的来源目录白名单。
-///
-/// 微信 / QQ 等第三方目录默认不动：它们按路径或 uri 索引自己的图片，
-/// 移走后聊天里的图可能打不开。
-class MovableSources {
-  MovableSources._();
-
-  static const List<String> prefixes = <String>[
-    'DCIM',
-    'Pictures',
-    'Download',
-  ];
-
-  static const List<String> blockedKeywords = <String>[
-    'weixin',
-    'wechat',
-    'micromsg',
-    'tencent',
-    'qq',
-    'dingtalk',
-    'telegram',
-    'whatsapp',
-  ];
-
-  static bool allows(String? relativePath) {
-    final p = ArchivePaths.normalize(relativePath ?? '');
-    if (p.isEmpty) return false;
-    final lower = p.toLowerCase();
-    for (final keyword in blockedKeywords) {
-      if (lower.contains(keyword)) return false;
-    }
-    for (final prefix in prefixes) {
-      if (p == prefix || p.startsWith('$prefix/')) return true;
-    }
-    return false;
-  }
-}
-
 /// 单张照片的移动结果
 class MoveItemResult {
   final String assetId;
@@ -175,7 +137,8 @@ class PhotoMoveService {
 
   /// 批量移动到 [targetDir]（如 `Pictures/拾光/旅行`）。
   ///
-  /// 会自动跳过已在目标目录的照片、以及来源不在白名单的照片。
+  /// 不设来源白名单，所有目录的照片都可移动（2026-10-28 调整）；
+  /// 会自动跳过已在目标目录的照片。
   /// [onProgress] 按「待移动张数」推进。
   Future<MoveBatchResult> moveToDirectory({
     required List<AssetEntity> entities,
@@ -218,17 +181,6 @@ class PhotoMoveService {
           toPath: targetNorm,
           success: true,
           skipped: true,
-        ));
-        continue;
-      }
-      if (!MovableSources.allows(current)) {
-        blocked++;
-        items.add(MoveItemResult(
-          assetId: entity.id,
-          fromPath: current,
-          toPath: targetNorm,
-          success: false,
-          error: '来源不在白名单：${current ?? '未知'}',
         ));
         continue;
       }
@@ -350,7 +302,7 @@ class PhotoMoveService {
         targetRelativePath: '',
         requested: allItems.length,
         alreadyThere: allItems.where((i) => i.skipped).length,
-        blocked: allItems.where((i) => !i.success && i.error?.contains('白名单') == true).length,
+        blocked: 0,
         moved: allItems.where((i) => i.success && !i.skipped).length,
         failed: allItems.where((i) => !i.success).length,
         elapsed: stopwatch.elapsed,

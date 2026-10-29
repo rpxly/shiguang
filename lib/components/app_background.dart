@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'glass_top_scrim.dart';
 
 /// 环境光背景。
 ///
@@ -114,7 +115,22 @@ class GlassScaffold extends StatelessWidget {
       floatingActionButton: floatingActionButton,
       floatingActionButtonLocation: floatingActionButtonLocation,
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
-      body: AppBackground(child: body),
+      // 状态栏玻璃 Scrim 固定在内容之上：内容滚动时从它底下穿过，
+      // 获得毛玻璃过渡，消除顶部"硬切"
+      body: AppBackground(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            body,
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: GlassTopScrim(),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

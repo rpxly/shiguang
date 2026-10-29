@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_version.dart';
 import '../theme.dart';
 import '../components/nav_header.dart';
 import '../components/glass_card.dart';
@@ -140,7 +141,7 @@ class _SettingsPageState extends State<SettingsPage> {
             12.hGap,
             _toggleItem(context, '联网自动获取文案', '进入文案库时自动抓取热门句子', _autoFetchQuotes, (v) { setState(() => _autoFetchQuotes = v); widget.repository.setAutoFetchQuotes(v); }),
             12.hGap,
-            _infoRow(context, '应用版本', '1.0.0'),
+            _infoRow(context, '应用版本', kAppVersion),
           ],
         ),
       ),

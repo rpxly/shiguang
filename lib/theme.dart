@@ -125,8 +125,9 @@ abstract class GlassColors {
   /// 通用半透明面：药丸、徽标、图标按钮、sliver appbar。
   /// 这些常常直接浮在照片上，保持 72% 以免透出底色影响可读性。
   static const Color bgLight = Color(0xB8FFFFFF); // 72%
-  static const Color bgMediumLight = Color(0xB8FFFFFF); // regular 导航
+  static const Color bgMediumLight = Color(0xB8FFFFFF); // regular 导航（72%，厚实稳定）
   static const Color bgHeavyLight = Color(0xDBFFFFFF); // thick 面板
+  static const Color bgClearLight = Color(0x8CFFFFFF); // clear 悬浮岛（55%）
   static const Color bgFaintLight = Color(0x66FFFFFF); // faint 次级分组
   static const Color borderLight = Color(0xF2FFFFFF); // 95%
   static const Color borderSubtleLight = Color(0x99FFFFFF); // 60%
@@ -144,8 +145,9 @@ abstract class GlassColors {
   // ── Dark：8% / 6% / 88% 深面 ──
   static const Color bgThinDark = Color(0x14FFFFFF); // thin 内容卡
   static const Color bgDark = Color(0x0FFFFFFF); // 通用半透明面
-  static const Color bgMediumDark = Color(0x14FFFFFF); // regular 导航
+  static const Color bgMediumDark = Color(0x14FFFFFF); // regular 导航（8%）
   static const Color bgHeavyDark = Color(0xD916161E); // thick 面板
+  static const Color bgClearDark = Color(0x24FFFFFF); // clear 悬浮岛（14%）
   static const Color bgFaintDark = Color(0x0AFFFFFF);
   static const Color borderDark = Color(0x24FFFFFF); // 14%
   static const Color borderSubtleDark = Color(0x17FFFFFF); // 9%
@@ -164,6 +166,8 @@ abstract class GlassColors {
       Theme.of(context).brightness == Brightness.light ? bgMediumLight : bgMediumDark;
   static Color bgHeavy(BuildContext context) =>
       Theme.of(context).brightness == Brightness.light ? bgHeavyLight : bgHeavyDark;
+  static Color bgClear(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.light ? bgClearLight : bgClearDark;
   static Color bgFaint(BuildContext context) =>
       Theme.of(context).brightness == Brightness.light ? bgFaintLight : bgFaintDark;
   static Color border(BuildContext context) =>
@@ -194,11 +198,15 @@ enum GlassTier {
   /// 内容卡片（默认）—— 仿玻璃：不跑 BackdropFilter，靠柔光背景 + 白描边造玻璃感
   thin,
 
-  /// 导航栏、TabBar、悬浮工具条 —— 真模糊 30
+  /// 导航栏、TabBar、悬浮工具条 —— 真模糊 40（液态玻璃低填充）
   regular,
 
   /// 底部 Sheet、居中对话框 —— 真模糊 40
   thick,
+
+  /// iOS 26 液态玻璃悬浮岛：最高透 + 最强模糊 + 镜面高光 + 浮起阴影。
+  /// 只给悬浮在内容之上的固定岛用（底部 TabBar 岛等）。
+  clear,
 }
 
 /// 解析后的一组玻璃绘制参数。
@@ -258,7 +266,7 @@ class GlassSpec {
       case GlassTier.regular:
         return GlassSpec(
           fill: GlassColors.bgMedium(context),
-          blur: 30,
+          blur: 40,
           border: GlassColors.border(context),
           borderWidth: 0.5,
           topHighlight: GlassColors.inset(context),
@@ -266,8 +274,8 @@ class GlassSpec {
           shadows: [
             BoxShadow(
               color: GlassColors.shadow(context),
-              offset: const Offset(0, 2),
-              blurRadius: 12,
+              offset: const Offset(0, 4),
+              blurRadius: 16,
             ),
           ],
         );
@@ -284,6 +292,28 @@ class GlassSpec {
               color: dark ? const Color(0x73000000) : const Color(0x140F172A),
               offset: const Offset(0, 8),
               blurRadius: 32,
+            ),
+          ],
+        );
+      case GlassTier.clear:
+        return GlassSpec(
+          fill: GlassColors.bgClear(context),
+          blur: 44,
+          border: GlassColors.border(context),
+          borderWidth: 0.5,
+          // 镜面高光：顶部一道不透明白，是液态玻璃"厚度"的核心
+          topHighlight: Colors.white,
+          bottomHairline: GlassColors.hairline(context),
+          shadows: [
+            BoxShadow(
+              color: dark ? const Color(0x73000000) : const Color(0x1A0F172A),
+              offset: const Offset(0, 10),
+              blurRadius: 30,
+            ),
+            BoxShadow(
+              color: dark ? const Color(0x26000000) : const Color(0x0D0F172A),
+              offset: const Offset(0, 2),
+              blurRadius: 8,
             ),
           ],
         );

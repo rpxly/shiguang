@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>拾光 · AI 相册 — 把散落的照片，装订成一月刊</title>
+<meta name="description" content="拾光是一款杂志风 AI 相册应用：卡片式快速整理、6 种杂志模板月刊排版、170 条精选文案库、胶片索引与杂志风水印。所有数据保存在你的手机里，无账号、无上传。">
+<meta property="og:title" content="拾光 · AI 相册">
+<meta property="og:description" content="把散落的照片，装订成一月刊。个人记忆管家，数据不出设备，无账号无广告。">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📸%3C/text%3E%3C/svg%3E">
+<style>
+/* ============ Design Tokens（源自拾光实机设计：杂志极简 + 玻璃拟态 + 琥珀金强调） ============ */
+:root{
+  --bg:#FCFAF6;
+  --bg-cool:#F2F5FA;
+  --text-primary:#111827;
+  --text-secondary:#6B7280;
+  --text-tertiary:#9CA3AF;
+  --primary:#374151;
+  --primary-hover:#1F2937;
+  --amber:#D9932B;
+  --amber-deep:#B8860B;
+  --border:rgba(0,0,0,.06);
+  --glass-fill:rgba(255,255,255,.58);
+  --glass-fill-strong:rgba(255,255,255,.72);
+  --glass-border:rgba(255,255,255,.95);
+  --shadow-card:0 8px 24px rgba(15,23,42,.07);
+  --shadow-float:0 8px 32px rgba(15,23,42,.08);
+  --radius-lg:18px;
+  --radius-xl:24px;
+  --radius-full:9999px;
+  --transition:250ms ease;
+  --accent-sunset:linear-gradient(135deg,#F0CF95,#EFC9BC);
+  --accent-ocean:linear-gradient(135deg,#B9D2F0,#D7E6F7);
+  --serif:'Noto Serif SC',Georgia,'Songti SC',serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Inter','Noto Sans SC',system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  color:var(--text-primary);
+  background:var(--bg);
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+/* ============ 环境光背景（App 内 AppBackground 同款） ============ */
+.ambient{
+  position:fixed;inset:0;z-index:-2;
+  background:linear-gradient(135deg,var(--bg),var(--bg-cool));
+}
+.ambient::before,.ambient::after{
+  content:"";position:absolute;border-radius:50%;filter:blur(90px);
+}
+.ambient::before{
+  width:60vw;height:60vw;top:-18vw;left:-12vw;
+  background:radial-gradient(circle,#F0CF95 0%,rgba(240,207,149,0) 70%);opacity:.55;
+}
+.ambient::after{
+  width:64vw;height:64vw;top:12vw;right:-20vw;
+  background:radial-gradient(circle,#B9D2F0 0%,rgba(185,210,240,0) 70%);opacity:.50;
+}
+.ambient-c{
+  position:fixed;z-index:-2;width:52vw;height:52vw;bottom:-16vw;left:6vw;
+  border-radius:50%;filter:blur(90px);
+  background:radial-gradient(circle,#EFC9BC 0%,rgba(239,201,188,0) 70%);opacity:.40;
+}
+/* ============ 通用 ============ */
+.container{max-width:1120px;margin:0 auto;padding:0 24px}
+.glass{
+  background:var(--glass-fill);
+  border:1px solid var(--glass-border);
+  box-shadow:var(--shadow-card),inset 0 1px 0 rgba(255,255,255,.6),inset 0 -1px 0 rgba(0,0,0,.04);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-radius:var(--radius-lg);
+}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:8px;
+  font-size:13px;font-weight:600;letter-spacing:.12em;color:var(--text-secondary);
+  text-transform:uppercase;
+}
+.eyebrow::before{content:"";width:24px;height:1.5px;background:var(--amber)}
+h1,h2,h3{letter-spacing:-.02em;line-height:1.25;font-weight:600}
+.section{padding:104px 0}
+.section-head{max-width:640px;margin:0 auto 56px;text-align:center}
+.section-head h2{font-size:clamp(28px,4vw,40px);margin:14px 0 12px}
+.section-head p{color:var(--text-secondary);font-size:16px;line-height:1.65}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .7s ease,transform .7s ease}
+.reveal.in{opacity:1;transform:none}
+/* ============ 导航 ============ */
+.nav{
+  position:fixed;top:16px;left:50%;transform:translateX(-50%);
+  width:min(1120px,calc(100% - 32px));z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 20px;border-radius:var(--radius-full);
+  background:var(--glass-fill-strong);
+  border:1px solid var(--glass-border);
+  box-shadow:0 2px 12px rgba(15,23,42,.05),inset 0 1px 0 rgba(255,255,255,.6);
+  backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);
+}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.01em;color:var(--text-primary);text-decoration:none}
+.logo-mark{
+  width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#E8B54A,#D9932B);color:#fff;font-size:15px;
+  box-shadow:0 2px 6px rgba(217,147,43,.35);
+}
+.nav-links{display:flex;gap:6px;align-items:center}
+.nav-links a{
+  color:var(--text-secondary);text-decoration:none;font-size:14px;font-weight:500;
+  padding:8px 14px;border-radius:var(--radius-full);transition:var(--transition);
+}
+.nav-links a:hover{color:var(--text-primary);background:rgba(0,0,0,.05)}
+.nav-cta{
+  background:var(--primary);color:#fff !important;box-shadow:0 2px 8px rgba(31,41,55,.25);
+}
+.nav-cta:hover{background:var(--primary-hover) !important}
+@media(max-width:760px){.nav-links a:not(.nav-cta){display:none}}
+/* ============ Hero ============ */
+.hero{padding:180px 0 96px;text-align:center}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:6px 16px;border-radius:var(--radius-full);
+  background:var(--glass-fill-strong);border:1px solid var(--glass-border);
+  font-size:13px;color:var(--text-secondary);
+  box-shadow:var(--shadow-card);backdrop-filter:blur(20px);
+}
+.hero-badge .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 3px rgba(217,147,43,.18)}
+.hero h1{
+  font-size:clamp(40px,7vw,72px);font-weight:300;letter-spacing:-.03em;
+  margin:28px 0 8px;line-height:1.15;
+}
+.hero h1 .serif{font-family:var(--serif);font-weight:600}
+.hero h1 .grad{
+  background:linear-gradient(120deg,var(--amber-deep),var(--amber) 55%,#E8B54A);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero-sub{font-size:clamp(16px,2.2vw,20px);color:var(--text-secondary);max-width:560px;margin:20px auto 0;line-height:1.7}
+.hero-actions{display:flex;gap:14px;justify-content:center;margin-top:40px;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:14px 30px;border-radius:var(--radius-full);
+  font-size:15px;font-weight:600;text-decoration:none;
+  transition:var(--transition);cursor:pointer;border:none;
+}
+.btn-primary{background:var(--primary);color:#fff;box-shadow:0 8px 24px rgba(31,41,55,.25)}
+.btn-primary:hover{background:var(--primary-hover);transform:translateY(-2px);box-shadow:0 12px 32px rgba(31,41,55,.3)}
+.btn-ghost{background:var(--glass-fill-strong);color:var(--text-primary);border:1px solid var(--glass-border);box-shadow:var(--shadow-card);backdrop-filter:blur(20px)}
+.btn-ghost:hover{transform:translateY(-2px)}
+.hero-meta{margin-top:18px;font-size:13px;color:var(--text-tertiary)}
+/* ============ 手机 mockup（按实机首页复刻） ============ */
+.hero-stage{margin-top:72px;display:flex;justify-content:center;position:relative}
+.phone{
+  width:300px;height:620px;border-radius:44px;position:relative;
+  background:#111827;padding:10px;
+  box-shadow:0 40px 80px rgba(15,23,42,.28),0 8px 24px rgba(15,23,42,.15);
+  transform:rotate(-2deg);transition:transform .6s ease;
+}
+.phone:hover{transform:rotate(0deg) translateY(-8px)}
+.phone-screen{
+  width:100%;height:100%;border-radius:35px;overflow:hidden;position:relative;
+  background:linear-gradient(150deg,#FCFAF6,#F2F5FA);
+  display:flex;flex-direction:column;
+}
+.phone-notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:100px;height:26px;background:#111827;border-radius:14px;z-index:5}
+.p-status{display:flex;justify-content:space-between;padding:14px 22px 6px;font-size:11px;font-weight:600;color:#111827}
+.p-greet{padding:8px 16px 2px}
+.p-greet span{font-size:10px;color:#9CA3AF;display:block}
+.p-greet-row{display:flex;justify-content:space-between;align-items:center}
+.p-greet b{font-size:22px;font-weight:600;color:#111827;letter-spacing:.02em}
+.p-gear{width:26px;height:26px;border-radius:50%;background:#fff;border:1px solid rgba(0,0,0,.06);display:grid;place-items:center;font-size:12px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.p-hero{
+  margin:10px 14px 0;border-radius:16px;height:140px;position:relative;overflow:hidden;
+  background:linear-gradient(140deg,#E8D9C0,#C9B89A 45%,#8FA3B8);
+}
+.p-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(17,24,39,.5),transparent 55%)}
+.p-hero-badge{
+  position:absolute;left:12px;bottom:44px;z-index:2;
+  font-size:9px;color:#fff;background:rgba(17,24,39,.4);border:1px solid rgba(255,255,255,.35);
+  padding:3px 9px;border-radius:99px;backdrop-filter:blur(6px);
+}
+.p-hero-text{position:absolute;bottom:12px;left:14px;color:#fff;z-index:2}
+.p-hero-text b{display:block;font-size:20px;font-weight:600}
+.p-hero-text span{font-size:10px;opacity:.85}
+.p-fav{position:absolute;top:10px;right:12px;z-index:2;font-size:9px;color:#fff;background:rgba(17,24,39,.4);border-radius:99px;padding:3px 8px;backdrop-filter:blur(6px)}
+.p-stats{display:flex;gap:8px;padding:12px 14px 0}
+.p-stat{flex:1;background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.95);border-radius:12px;padding:9px 4px;text-align:center;box-shadow:0 2px 8px rgba(15,23,42,.04)}
+.p-stat b{display:block;font-size:13px;color:#111827}
+.p-stat span{font-size:8.5px;color:#6B7280}
+.p-sec{font-size:11px;font-weight:700;color:#111827;padding:12px 16px 4px}
+.p-tool{
+  margin:5px 14px 0;border-radius:12px;padding:9px 12px;
+  background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.95);
+  box-shadow:0 2px 8px rgba(15,23,42,.04);backdrop-filter:blur(20px);
+  display:flex;align-items:center;gap:9px;
+}
+.p-tool-ico{width:26px;height:26px;border-radius:8px;background:var(--accent-sunset);display:grid;place-items:center;font-size:12px}
+.p-tool-ico.blue{background:linear-gradient(135deg,#B9D2F0,#D7E6F7)}
+.p-tool-t b{display:block;font-size:10.5px;color:#111827}
+.p-tool-t span{font-size:8.5px;color:#6B7280}
+.p-tool .arr{margin-left:auto;color:#C4C9D2;font-size:11px}
+.p-tabbar{
+  margin-top:auto;display:flex;justify-content:space-around;padding:10px 8px 18px;
+  background:rgba(255,255,255,.9);border-top:1px solid rgba(0,0,0,.05);backdrop-filter:blur(40px);
+}
+.p-tab{font-size:9.5px;color:#9CA3AF;text-align:center}
+.p-tab.act{color:var(--amber);font-weight:600}
+.p-tab .ico{
+  display:grid;place-items:center;width:30px;height:22px;margin:0 auto 2px;font-style:normal;font-size:14px;
+}
+.p-tab.act .ico{background:linear-gradient(135deg,#E8B54A,#D9932B);color:#fff;border-radius:99px;box-shadow:0 3px 8px rgba(217,147,43,.4)}
+/* hero 两侧漂浮玻璃卡 */
+.float-card{
+  position:absolute;border-radius:var(--radius-lg);padding:14px 18px;
+  background:var(--glass-fill-strong);border:1px solid var(--glass-border);
+  box-shadow:var(--shadow-float);backdrop-filter:blur(30px);
+  font-size:13px;animation:float 6s ease-in-out infinite;
+}
+.float-card b{display:block;font-size:14px;margin-bottom:2px}
+.float-card span{color:var(--text-secondary);font-size:12px}
+.fc-1{left:calc(50% - 340px);top:110px;animation-delay:0s}
+.fc-2{right:calc(50% - 350px);top:280px;animation-delay:2s}
+.fc-3{left:calc(50% - 320px);bottom:90px;animation-delay:4s}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+@media(max-width:920px){.float-card{display:none}}
+/* ============ 特性网格 ============ */
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+@media(max-width:900px){.features{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.features{grid-template-columns:1fr}}
+.feature{padding:30px 28px;transition:var(--transition)}
+.feature:hover{transform:translateY(-6px);box-shadow:0 16px 40px rgba(15,23,42,.10)}
+.feature-ico{
+  width:48px;height:48px;border-radius:14px;display:grid;place-items:center;
+  font-size:22px;margin-bottom:18px;
+}
+.fi-1{background:var(--accent-sunset)}
+.fi-2{background:linear-gradient(135deg,#E8B54A,#D9932B)}
+.fi-3{background:var(--accent-ocean)}
+.fi-4{background:linear-gradient(135deg,#C7E8D4,#9FDCBB)}
+.fi-5{background:linear-gradient(135deg,#E6D9F5,#CDB8EC)}
+.fi-6{background:linear-gradient(135deg,#F5D9D0,#EAB8A9)}
+.feature h3{font-size:18px;margin-bottom:8px}
+.feature p{color:var(--text-secondary);font-size:14.5px;line-height:1.65}
+/* ============ 本地优先区 ============ */
+.privacy{position:relative}
+.privacy-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:56px;align-items:center}
+@media(max-width:860px){.privacy-grid{grid-template-columns:1fr;gap:36px}}
+.privacy h2{font-size:clamp(26px,3.6vw,36px);margin:14px 0 16px}
+.privacy p{color:var(--text-secondary);line-height:1.75;font-size:15.5px}
+.privacy-points{margin-top:28px;display:grid;gap:14px}
+.point{display:flex;gap:14px;align-items:flex-start}
+.point-ico{
+  flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+  background:rgba(217,147,43,.12);color:var(--amber-deep);font-size:15px;font-weight:700;
+}
+.point b{font-size:15px;display:block;margin-bottom:2px}
+.point span{color:var(--text-secondary);font-size:13.5px;line-height:1.6}
+.pipeline{padding:28px;border-radius:var(--radius-xl)}
+.pipeline h3{font-size:15px;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+.step{display:flex;gap:14px;position:relative;padding-bottom:22px}
+.step:last-child{padding-bottom:0}
+.step::before{
+  content:"";position:absolute;left:13px;top:30px;bottom:2px;width:2px;
+  background:linear-gradient(to bottom,rgba(17,24,39,.12),rgba(17,24,39,.03));
+}
+.step:last-child::before{display:none}
+.step-ico{
+  flex:none;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;
+  font-size:13px;z-index:1;color:#fff;
+}
+.s-done{background:var(--amber)}
+.s-run{background:#374151;box-shadow:0 0 0 4px rgba(55,65,81,.15)}
+.s-wait{background:#D1D5DB;color:#6B7280}
+.step b{font-size:14px;display:block}
+.step span{font-size:12.5px;color:var(--text-secondary)}
+.step-bar{height:4px;border-radius:99px;background:rgba(0,0,0,.06);margin-top:8px;overflow:hidden;max-width:240px}
+.step-bar i{display:block;height:100%;border-radius:99px;background:var(--amber)}
+/* ============ 数据条 ============ */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;text-align:center}
+@media(max-width:700px){.stats{grid-template-columns:1fr 1fr}}
+.stat b{display:block;font-size:clamp(30px,4vw,44px);font-weight:300;letter-spacing:-.02em}
+.stat b em{font-style:normal;font-size:.55em;color:var(--text-tertiary)}
+.stat span{color:var(--text-secondary);font-size:13.5px}
+/* ============ 下载区 ============ */
+.download{
+  text-align:center;padding:88px 32px;border-radius:var(--radius-xl);position:relative;overflow:hidden;
+  background:linear-gradient(140deg,#111827,#1F2937);
+  color:#fff;box-shadow:0 24px 64px rgba(17,24,39,.3);
+}
+.download::before{
+  content:"";position:absolute;width:480px;height:480px;border-radius:50%;
+  top:-240px;right:-120px;filter:blur(80px);
+  background:radial-gradient(circle,rgba(232,181,74,.4),transparent 70%);
+}
+.download::after{
+  content:"";position:absolute;width:420px;height:420px;border-radius:50%;
+  bottom:-220px;left:-100px;filter:blur(80px);
+  background:radial-gradient(circle,rgba(185,210,240,.3),transparent 70%);
+}
+.download>*{position:relative;z-index:1}
+.download h2{font-size:clamp(26px,4vw,38px);font-weight:300}
+.download h2 .serif{font-family:var(--serif);font-weight:600}
+.download p{color:rgba(255,255,255,.65);margin:16px auto 36px;max-width:480px;line-height:1.7}
+.dl-btns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.dl-btn{
+  display:inline-flex;align-items:center;gap:12px;padding:14px 28px;border-radius:16px;
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);
+  color:#fff;text-decoration:none;transition:var(--transition);text-align:left;
+}
+.dl-btn:hover{background:rgba(255,255,255,.18);transform:translateY(-2px)}
+.dl-btn i{font-style:normal;font-size:22px}
+.dl-btn b{display:block;font-size:15px}
+.dl-btn span{font-size:11.5px;color:rgba(255,255,255,.55)}
+/* ============ Footer ============ */
+footer{padding:56px 0 40px;text-align:center;color:var(--text-tertiary);font-size:13px}
+footer .f-logo{font-weight:700;font-size:16px;color:var(--text-secondary);margin-bottom:10px;display:flex;justify-content:center;align-items:center;gap:8px}
+footer .f-links{display:flex;gap:24px;justify-content:center;margin:18px 0 22px}
+footer .f-links a{color:var(--text-secondary);text-decoration:none;font-size:13px}
+footer .f-links a:hover{color:var(--text-primary)}
+</style>
+</head>
+<body>
+
+<div class="ambient"></div>
+<div class="ambient-c"></div>
+
+<!-- 导航 -->
+<nav class="nav">
+  <a class="logo" href="#top"><span class="logo-mark">拾</span>拾光 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary)">Shiguang</span></a>
+  <div class="nav-links">
+    <a href="#features">功能</a>
+    <a href="#local">本地优先</a>
+    <a href="#download" class="nav-cta">下载 App</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero container" id="top">
+  <div class="hero-badge"><span class="dot"></span>v1.1.0 · 液态玻璃设计全新升级</div>
+  <h1>把散落的照片，<br>装订成<span class="serif grad">一月刊</span>。</h1>
+  <p class="hero-sub">拾光是你的个人记忆管家 — 卡片式快速整理、杂志模板月刊排版、170 条精选文案、胶片索引与杂志风水印。你的照片，从不需要被上传。</p>
+  <div class="hero-actions">
+    <a href="#download" class="btn btn-primary">下载 Android 版</a>
+    <a href="#features" class="btn btn-ghost">了解功能 ↓</a>
+  </div>
+  <p class="hero-meta">Flutter 构建 · 数据全部保存在本地 · 无账号 · 无广告</p>
+
+  <div class="hero-stage">
+    <div class="float-card fc-1"><b>🗂️ 按月份整理</b><span>未整理一目了然 · 逐月清零</span></div>
+    <div class="float-card fc-2"><b>🎞️ 胶片索引</b><span>按月浏览全部照片，像翻一卷底片</span></div>
+    <div class="float-card fc-3"><b>🖼️ 杂志风水印</b><span>相机时间地点 · 拍照即盖章</span></div>
+
+    <div class="phone">
+      <div class="phone-notch"></div>
+      <div class="phone-screen">
+        <div class="p-status"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="p-greet">
+          <span>欢迎回来</span>
+          <div class="p-greet-row"><b>拾 光</b><div class="p-gear">⚙</div></div>
+        </div>
+        <div class="p-hero">
+          <div class="p-fav">♥ 1</div>
+          <div class="p-hero-badge">✦ 精选回忆</div>
+          <div class="p-hero-text"><b>我的回忆</b><span>家里 · 10月28日</span></div>
+        </div>
+        <div class="p-stats">
+          <div class="p-stat"><b>10314</b><span>照片总数</span></div>
+          <div class="p-stat"><b>31</b><span>已整理</span></div>
+          <div class="p-stat"><b>10283</b><span>未整理</span></div>
+        </div>
+        <div class="p-sec">工具</div>
+        <div class="p-tool">
+          <div class="p-tool-ico">🎞</div>
+          <div class="p-tool-t"><b>胶片索引</b><span>按月浏览全部照片索引</span></div>
+          <div class="arr">›</div>
+        </div>
+        <div class="p-tool">
+          <div class="p-tool-ico blue">🖼</div>
+          <div class="p-tool-t"><b>水印</b><span>杂志风边框 · 相机时间地点水印</span></div>
+          <div class="arr">›</div>
+        </div>
+        <div class="p-tabbar">
+          <div class="p-tab act"><span class="ico">◉</span>首页</div>
+          <div class="p-tab"><span class="ico">▽</span>整理</div>
+          <div class="p-tab"><span class="ico">✦</span>月刊</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- 功能 -->
+<main>
+<section class="section container" id="features">
+  <div class="section-head reveal">
+    <span class="eyebrow">Features</span>
+    <h2>像整理一本杂志那样，整理你的相册</h2>
+    <p>三个 Tab，覆盖从「一万张乱成一团」到「可以分享」的完整链路。</p>
+  </div>
+  <div class="features">
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-1">🃏</div>
+      <h3>卡片式快速整理</h3>
+      <p>左滑删除、右滑收藏、上滑保留、拖入相簿 — 像洗牌一样处理堆积的照片，批量延迟删除，随时撤销。</p>
+    </div>
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-4">🗂️</div>
+      <h3>按月份整理与相簿</h3>
+      <p>未整理的照片按月份归组、逐月清零；相簿创建、重命名、排序，精选照片一墙收藏。</p>
+    </div>
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-1" style="background:linear-gradient(135deg,#F5D9D0,#EAB8A9)">🧹</div>
+      <h3>清理建议</h3>
+      <p>自动识别截图与低质照片，分批给出清理建议，把相册的「库存」还给值得留下的瞬间。</p>
+    </div>
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-2">📖</div>
+      <h3>月刊编辑器</h3>
+      <p>6 种杂志模板（下留白 / 全幅 / 拍立得 / 中线 / 立体相框 / 胶片质感），「时光线」一键成刊，实时预览，一键导出 PNG 分享。</p>
+    </div>
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-3">🧠</div>
+      <h3>智能摘要与月度回顾</h3>
+      <p>心情、天气、步数、出行与重要事件 — 月度卡只陈述照片事实，配一句恰如其分的文案。</p>
+    </div>
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-6">✍️</div>
+      <h3>文案库</h3>
+      <p>内置 170 条精选文案，覆盖哲思、旅行、爱情等 9 大分类；联网热句抓取，随机分配进月刊不重样。</p>
+    </div>
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-5">🎞️</div>
+      <h3>胶片索引与胶片质感</h3>
+      <p>按月浏览全部照片的胶片索引页；柯达的暖、富士的绿、伊尔福的黑白 — 4 种胶片品牌质感。</p>
+    </div>
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-3" style="background:linear-gradient(135deg,#E8B54A,#F0CF95)">🖼️</div>
+      <h3>杂志风水印</h3>
+      <p>相机时间地点水印、杂志风边框与浮层，EXIF 信息完整保留 — 拍照即盖章，分享即成片。</p>
+    </div>
+    <div class="feature glass reveal">
+      <div class="feature-ico fi-4" style="background:linear-gradient(135deg,#D7E6F7,#B9D2F0)">🌗</div>
+      <h3>明暗双主题</h3>
+      <p>完整的亮色 / 暗色模式，液态玻璃材质全局协调，深夜翻相册也不刺眼。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 本地优先 -->
+<section class="section container privacy" id="local">
+  <div class="privacy-grid">
+    <div class="reveal">
+      <span class="eyebrow">Local First</span>
+      <h2>照片在你的手机里，<br>回忆也留在你的手机里。</h2>
+      <p>拾光没有账号系统，没有云端同步 — 所有照片、相簿、月刊与使用记录都保存在本机数据库中。场景识别在设备上离线完成，月度摘要只陈述照片事实。它读得到你的十月，但互联网读不到。</p>
+      <div class="privacy-points">
+        <div class="point"><div class="point-ico">✓</div><div><b>无账号 · 无上传</b><span>打开即用，照片与整理记录全部存于本机 Hive 数据库。</span></div></div>
+        <div class="point"><div class="point-ico">✓</div><div><b>离线场景识别</b><span>ML Kit 在设备上完成标签与场景词识别，不需要联网。</span></div></div>
+        <div class="point"><div class="point-ico">✓</div><div><b>只陈述照片事实</b><span>月度摘要从场景、出行、天气、步数中提炼，不编造你的回忆。</span></div></div>
+        <div class="point"><div class="point-ico">✓</div><div><b>轻量联网，仅取文案</b><span>唯一的网络请求是 hitokoto 一句话文案 — 与你的照片无关。</span></div></div>
+      </div>
+    </div>
+    <div class="pipeline glass reveal">
+      <h3>✦ 一本月刊是这样生成的</h3>
+      <div class="step">
+        <div class="step-ico s-done">✓</div>
+        <div><b>扫描相册</b><span>分页扫描本机照片，实时入库</span><div class="step-bar"><i style="width:100%"></i></div></div>
+      </div>
+      <div class="step">
+        <div class="step-ico s-done">✓</div>
+        <div><b>挑选本月瞬间</b><span>从月份分组中选照片，标记精选</span><div class="step-bar"><i style="width:100%"></i></div></div>
+      </div>
+      <div class="step">
+        <div class="step-ico s-run">●</div>
+        <div><b>智能摘要</b><span>汇总心情 / 天气 / 步数 / 出行事实</span><div class="step-bar"><i style="width:68%"></i></div></div>
+      </div>
+      <div class="step">
+        <div class="step-ico s-wait">·</div>
+        <div><b>选文案 · 排版</b><span>170 条文案随机分配，6 种杂志模板</span><div class="step-bar"><i style="width:0%"></i></div></div>
+      </div>
+      <div class="step">
+        <div class="step-ico s-wait">·</div>
+        <div><b>一键成刊 · 导出</b><span>时光线排版 → PNG → 系统分享</span><div class="step-bar"><i style="width:0%"></i></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 数据条 -->
+<section class="section container">
+  <div class="stats">
+    <div class="stat glass reveal" style="padding:32px 12px"><b>3<em> 个</em></b><span>极简 Tab 导航</span></div>
+    <div class="stat glass reveal" style="padding:32px 12px"><b>6<em> 种</em></b><span>杂志排版模板</span></div>
+    <div class="stat glass reveal" style="padding:32px 12px"><b>170<em> 条</em></b><span>内置精选文案</span></div>
+    <div class="stat glass reveal" style="padding:32px 12px"><b>0<em> 字节</em></b><span>照片上传云端</span></div>
+  </div>
+</section>
+
+<!-- 下载 -->
+<section class="section container" id="download">
+  <div class="download reveal">
+    <h2>这个月，值得被<span class="serif">好好装订</span>。</h2>
+    <p>下载拾光，扫描你的相册，几分钟后就有一本属于你的月刊。<br>无需注册，打开即用。</p>
+    <div class="dl-btns">
+      <a class="dl-btn" href="apks/shiguang-v1.1.0-release.apk" download>
+        <i>🤖</i><span><b>Android APK · v1.1.0</b><br><span>Android 8.0+ · arm64 · 96 MB</span></span>
+      </a>
+      <a class="dl-btn" href="https://github.com/rpxly/shiguang/releases" target="_blank" rel="noopener">
+        <i>📦</i><span><b>历史版本</b><br><span>GitHub Releases</span></span>
+      </a>
+    </div>
+    <p style="margin-top:28px;margin-bottom:0;font-size:12px;color:rgba(255,255,255,.4)">安装前请允许「安装未知应用」权限 · 所有数据仅保存在设备本地</p>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="container">
+    <div class="f-logo"><span class="logo-mark" style="width:26px;height:26px;font-size:12px;border-radius:8px">拾</span>拾光 Shiguang</div>
+    <div class="f-links">
+      <a href="#features">功能</a>
+      <a href="#local">本地优先</a>
+      <a href="#download">下载</a>
+    </div>
+    <p>拾光 · 个人记忆管家 — 杂志极简 × 液态玻璃<br>© 2026 Shiguang. 用 Flutter 构建，数据留在你的设备上。</p>
+  </div>
+</footer>
+
+<script>
+// 滚动渐入
+const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.12});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

@@ -73,8 +73,8 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
   List<Album> _albums = [];
 
   static const double _deleteThreshold = -120;
+  static const double _keepThreshold = 120;
   static const double _favoriteThreshold = 80;
-  static const double _keepThreshold = 180;
   static const double _horizontalThreshold = 80;
 
   Photo? get _currentPhoto => _currentIndex < _photos.length ? _photos[_currentIndex] : null;
@@ -188,26 +188,27 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     final entry = _history.removeLast();
     widget.repository.recordOrganized(-1);
-    switch (entry.action) {
-      case _UndoAction.delete:
-        setState(() {
+    setState(() {
+      // 所有动作类型都要同步回退进度并刷新界面
+      _processedCount = max(0, _processedCount - 1);
+      switch (entry.action) {
+        case _UndoAction.delete:
           _deleteQueue.remove(entry.photo);
           final idx = _currentIndex.clamp(0, _photos.length);
           _photos.insert(idx, entry.photo);
-          _processedCount = max(0, _processedCount - 1);
-        });
-        _resetGesture();
-      case _UndoAction.favorite || _UndoAction.keep:
-        widget.repository.savePhoto(entry.photo.copyWith(
-          userMark: entry.prevMark,
-          isFavorite: entry.prevFavorite,
-        ));
-      case _UndoAction.album:
-        if (entry.albumId != null) {
-          widget.repository.removePendingMoves(entry.albumId!, [entry.photo.id]);
-        }
-        widget.repository.savePhoto(entry.photo.copyWith(userMark: entry.prevMark));
-    }
+          _resetGesture();
+        case _UndoAction.favorite || _UndoAction.keep:
+          widget.repository.savePhoto(entry.photo.copyWith(
+            userMark: entry.prevMark,
+            isFavorite: entry.prevFavorite,
+          ));
+        case _UndoAction.album:
+          if (entry.albumId != null) {
+            widget.repository.removePendingMoves(entry.albumId!, [entry.photo.id]);
+          }
+          widget.repository.savePhoto(entry.photo.copyWith(userMark: entry.prevMark));
+      }
+    });
   }
 
   void _resetGesture() {
@@ -330,7 +331,7 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
       _horizontalShift += details.delta.dx;
       _dragOffset = Offset(0, _dragOffset.dy + details.delta.dy);
       _swipeAction = _getSwipeAction();
-      _opacity = max(0.3, 1.0 - (_dragOffset.dy.abs() / 300));
+      _opacity = max(0.3, 1.0 - (max(_dragOffset.dy.abs(), _horizontalShift.abs()) / 300));
     });
   }
 
@@ -339,11 +340,16 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
     final dx = _horizontalShift.abs();
     final dy = _dragOffset.dy.abs();
 
-    if (dx > dy && dx > _horizontalThreshold) {
-      if (_horizontalShift < 0) {
-        _animateHorizontal(-300, _nextPhoto);
-      } else {
+    if (dx > dy) {
+      if (_horizontalShift < -_favoriteThreshold) {
+        // 左滑精选
+        HapticFeedback.selectionClick();
+        _animateHorizontal(-300, _favoriteCurrent);
+      } else if (_horizontalShift > _horizontalThreshold) {
+        // 右滑回看上一张
         _animateHorizontal(300, _prevPhoto);
+      } else {
+        _resetGesture();
       }
     } else if (_dragOffset.dy < _deleteThreshold) {
       HapticFeedback.heavyImpact();
@@ -351,9 +357,6 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
     } else if (_dragOffset.dy > _keepThreshold) {
       HapticFeedback.mediumImpact();
       _animateVertical(_SwipeAction.keep);
-    } else if (_dragOffset.dy > _favoriteThreshold) {
-      HapticFeedback.selectionClick();
-      _animateVertical(_SwipeAction.favorite);
     } else {
       _resetGesture();
     }
@@ -393,10 +396,13 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
   _SwipeAction _getSwipeAction() {
     final dx = _horizontalShift.abs();
     final dy = _dragOffset.dy.abs();
-    if (dx > dy && dx > _horizontalThreshold) return _SwipeAction.none;
+    if (dx > dy) {
+      // 左滑精选；右滑仅用于回看，不触发动作
+      if (_horizontalShift < -_favoriteThreshold) return _SwipeAction.favorite;
+      return _SwipeAction.none;
+    }
     if (_dragOffset.dy < _deleteThreshold) return _SwipeAction.delete;
     if (_dragOffset.dy > _keepThreshold) return _SwipeAction.keep;
-    if (_dragOffset.dy > _favoriteThreshold) return _SwipeAction.favorite;
     return _SwipeAction.none;
   }
 
@@ -562,6 +568,7 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
 
     final action = _getSwipeAction();
     final showIndicator = action != _SwipeAction.none;
+    final dragMagnitude = max(_dragOffset.dy.abs(), _horizontalShift.abs()).toDouble();
 
     return GestureDetector(
       onPanUpdate: _onPanUpdate,
@@ -574,13 +581,13 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
               duration: AppTransitions.fast,
               color: _swipeAction == _SwipeAction.none
                   ? Colors.transparent
-                  : _getActionColor().withOpacity(min(0.15, _dragOffset.dy.abs() / 800)),
+                  : _getActionColor().withOpacity(min(0.15, dragMagnitude / 800)),
             )
           else
             ColoredBox(
               color: _swipeAction == _SwipeAction.none
                   ? Colors.transparent
-                  : _getActionColor().withOpacity(min(0.15, _dragOffset.dy.abs() / 800)),
+                  : _getActionColor().withOpacity(min(0.15, dragMagnitude / 800)),
             ),
           Center(
             child: RepaintBoundary(
@@ -620,21 +627,32 @@ class _SlideBoxPageState extends State<SlideBoxPage> with TickerProviderStateMix
             ),
           ),
           if (showIndicator)
-            Positioned(
-              left: 0, right: 0,
-              top: _swipeAction == _SwipeAction.delete ? 40 : null,
-              bottom: _swipeAction != _SwipeAction.delete ? 40 : null,
-              child: Center(
-                child: _isAnimating
-                    ? AnimatedOpacity(
-                        opacity: min(1.0, _dragOffset.dy.abs() / 100),
-                        duration: AppTransitions.fast,
-                        child: _indicatorChip(),
-                      )
-                    : Opacity(
-                        opacity: min(1.0, _dragOffset.dy.abs() / 100),
-                        child: _indicatorChip(),
-                      ),
+            Positioned.fill(
+              child: Align(
+                // 指示器位置跟随滑动方向：上滑删除→顶部，下滑保留→底部，左滑精选→左侧
+                alignment: switch (_swipeAction) {
+                  _SwipeAction.delete => Alignment.topCenter,
+                  _SwipeAction.keep => Alignment.bottomCenter,
+                  _SwipeAction.favorite => Alignment.centerLeft,
+                  _ => Alignment.center,
+                },
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: _swipeAction == _SwipeAction.delete ? 40 : 0,
+                    bottom: _swipeAction == _SwipeAction.keep ? 40 : 0,
+                    left: _swipeAction == _SwipeAction.favorite ? 32 : 0,
+                  ),
+                  child: _isAnimating
+                      ? AnimatedOpacity(
+                          opacity: min(1.0, dragMagnitude / 100),
+                          duration: AppTransitions.fast,
+                          child: _indicatorChip(),
+                        )
+                      : Opacity(
+                          opacity: min(1.0, dragMagnitude / 100),
+                          child: _indicatorChip(),
+                        ),
+                ),
               ),
             ),
           if (_currentPhoto != null)
