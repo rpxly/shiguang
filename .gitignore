@@ -80,3 +80,8 @@ app.*.map.json
 /t_web_*.png
 /t_web_site/
 /参考图.jpg
+
+# 官网改版临时验证截图与设计参考图（一次性产物）
+/t_web_*.png
+/t_web_site/
+/参考图.jpg
